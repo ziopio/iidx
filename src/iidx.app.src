@@ -5,7 +5,8 @@
   {applications,
    [kernel,
     stdlib,
-    erlang_color
+    erlang_color,
+    mapz
    ]},
   {env,[]},
   {modules, []},
