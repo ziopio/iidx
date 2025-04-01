@@ -1,7 +1,7 @@
 -module(iidx_dot1).
 
 -export([decode/1]).
--export([encode/2]).
+-export([encode/1]).
 
 -define(PINKY_CRUSH_DIRECTORIES, 14).
 -define(CHART_TERMINATION, <<16#7FFFFFFF:32/integer-little, 0:32>>).
@@ -85,17 +85,14 @@
 
 %--- API -----------------------------------------------------------------------
 
-decode(Dot1File) ->
-    {ok, Binary} = file:read_file(Dot1File),
-    Directories = decode_directory(Binary),
-    [decode_chart(Dir, Binary) || Dir <- Directories].
+decode(Dot1FileBinary) ->
+    Directories = decode_directory(Dot1FileBinary),
+    [decode_chart(Dir, Dot1FileBinary) || Dir <- Directories].
 
-encode(ID, IIDX_Charts) ->
+encode(IIDX_Charts) ->
     EncodedCharts = [encode_chart(Chart) || Chart <- IIDX_Charts],
     EncodedDirectories = encode_directory(EncodedCharts),
-    Binary = iolist_to_binary([EncodedDirectories, EncodedCharts]),
-    ok = file:write_file(ID ++ ".1", Binary),
-    done.
+    iolist_to_binary([EncodedDirectories, EncodedCharts]).
 
 %--- Internals -----------------------------------------------------------------
 

@@ -11,9 +11,8 @@
 
 %--- API -----------------------------------------------------------------------
 
-decode(MusicDataFile) ->
-    {ok, Binary} = file:read_file(MusicDataFile),
-    {Header, DataBin} = decode_header(Binary),
+decode(MusicDataFileBinary) ->
+    {Header, DataBin} = decode_header(MusicDataFileBinary),
     Data = decode_data(DataBin),
     iidx_cli:info("Total entries: ~p", [length(Data)]),
     #{header => Header, data => Data}.
@@ -22,8 +21,7 @@ encode(#{header := Header, data := Data}) ->
     SongIDs = [SongID || #{song_id := SongID} <- Data],
     HeaderBin = encode_header(Header, SongIDs),
     DataBin = encode_data(Data),
-    Binary = <<HeaderBin/binary, DataBin/binary>>,
-    ok = file:write_file("music_data.bin", Binary).
+    <<HeaderBin/binary, DataBin/binary>>.
 
 %--- Internals -----------------------------------------------------------------
 
