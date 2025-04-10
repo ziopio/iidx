@@ -22,7 +22,7 @@
 -define(P1_KEY_1,        "11").
 -define(P1_KEY_2,        "12").
 -define(P1_KEY_3,        "13").
--define(P1_KEY_41,       "14").
+-define(P1_KEY_4,        "14").
 -define(P1_KEY_5,        "15").
 -define(P1_KEY_6,        "18").
 -define(P1_KEY_7,        "19").
@@ -54,8 +54,7 @@
 
 %--- API -----------------------------------------------------------------------
 
-decode(BMSfile) ->
-    {ok, Binary} = file:read_file(BMSfile),
+decode(Binary) ->
     Lines = binary:split(Binary, <<"\r\n">>, [global]),
     lists:foldl(fun decode_line/2, #{}, Lines).
 
@@ -64,7 +63,6 @@ decode(BMSfile) ->
 decode_line(<<>>, S) -> S;
 decode_line(<<"ï»¿">>, S) -> S; % UTF-8 BOM (ignored)
 decode_line(<<"*---------------------- HEADER FIELD">>, S) ->
-    iidx_cli:info("Parsing header..."),
     S;
 decode_line(<<"#PLAYER 1">>, S) ->
     mapz:deep_put([header, player], single, S);
@@ -112,15 +110,13 @@ decode_line(<<"#WAV", NUM:2/binary, " ", FileName/binary>>, S) ->
 decode_line(<<"#BMP", NUM:2/binary, " ", Bitmap/binary>>, S) ->
     mapz:deep_put([header, bitmap, NUM], Bitmap, S);
 decode_line(<<"*---------------------- EXPANSION FIELD">>, S) ->
-    iidx_cli:info("Parsing expansion..."),
     S;
 decode_line(<<"*---------------------- MAIN DATA FIELD">>, S) ->
-    iidx_cli:info("Parsing data..."),
     S;
 decode_line(<<"#", Track:3/binary, Channel:2/binary, ":", Message/binary>>, S) ->
     Messages = mapz:deep_get([data, messages], S, []),
     NewMsg = {Track, decode_channel(Channel), decode_message(Message)},
-    mapz:deep_put([data, messages], [NewMsg|Messages], S);
+    mapz:deep_put([data, messages], Messages ++ [NewMsg], S);
 decode_line(Line, S) ->
     iidx_cli:warn("Unhandled ~p...", [Line]),
     S.
@@ -130,12 +126,12 @@ decode_channel(<<?TEMPO_CHANGE>>)    -> tempo_change;
 decode_channel(<<?BGA>>)             -> bga;
 decode_channel(<<?POOR_BITMAP>>)     -> poor_bitmap;
 decode_channel(<<?BGA_LAYER>>)       -> bga_layer;
-decode_channel(<<?EXT_BPM>>)         -> bpm;
+decode_channel(<<?EXT_BPM>>)         -> ext_bpm;
 decode_channel(<<?P1_SCRATCH>>)      -> p1_scratch;
 decode_channel(<<?P1_KEY_1>>)        -> p1_key_1;
 decode_channel(<<?P1_KEY_2>>)        -> p1_key_2;
 decode_channel(<<?P1_KEY_3>>)        -> p1_key_3;
-decode_channel(<<?P1_KEY_41>>)       -> p1_key_4;
+decode_channel(<<?P1_KEY_4>>)        -> p1_key_4;
 decode_channel(<<?P1_KEY_5>>)        -> p1_key_5;
 decode_channel(<<?P1_KEY_6>>)        -> p1_key_6;
 decode_channel(<<?P1_KEY_7>>)        -> p1_key_7;
