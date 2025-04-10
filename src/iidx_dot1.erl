@@ -215,8 +215,6 @@ encode_event({Offset, Type, Param, Value}) ->
     EncodedType = encode_type(Type),
     EncodedParam = encode_param(Param, Type),
     EncodedValue = encode_value(Value, Type),
-    iidx_cli:info("Offset = ~p, Type = ~p, Param = ~p, Value = ~p",
-        [Offset, EncodedType, EncodedParam, EncodedValue]),
     <<Offset:32/integer-little,
       EncodedType:1/binary,
       EncodedParam:8/little,
