@@ -36,24 +36,10 @@ convert(#{bms_folder := BMSfolder, iidx_id := IIDXid}) ->
 
 %--- Internals -----------------------------------------------------------------
 
-assert_path_exists(Path) ->
-    case filelib:is_dir(Path) of
-        true -> ok;
-        false -> iidx_cli:abort("Path is not a directory: ~p",[Path])
-    end.
-
-find_bms_files(BMSfolder) ->
-    Wildcard = binary_to_list(filename:join(BMSfolder, "*.bms")),
-    case filelib:wildcard(Wildcard) of
-        [] ->
-            iidx_cli:abort("Cannot find BMS files in folder ~p", [BMSfolder]);
-        Files ->
-            Files
-    end.
 
 read_bms_folder(BMSfolder) ->
-    assert_path_exists(BMSfolder),
-    BMSfiles = find_bms_files(BMSfolder),
+    iidx_cli:assert_path_exists(BMSfolder),
+    BMSfiles = iidx_cli:find_files(BMSfolder, "bms"),
     iidx_cli:info("Found BMS files: ~p", [BMSfiles]),
     BMSBinaries = [iidx_cli:read_file(BMSfile) || BMSfile <- BMSfiles],
     BMSCharts = [iidx_bms:decode(BMSBinary) || BMSBinary <- BMSBinaries],
@@ -61,6 +47,7 @@ read_bms_folder(BMSfolder) ->
     BMSAssets = read_all_bms_assets(BMSfolder, BMSrefs),
     {BMSCharts, BMSAssets}.
 
+% Merge the assets of the BMS files into a single map
 merge_bms_file_references(BMSCharts) ->
     lists:foldl(
         fun(Chart, Assets) ->
@@ -72,6 +59,7 @@ merge_bms_file_references(BMSCharts) ->
         #{},
         BMSCharts).
 
+% Read all the assets of the BMS files into a single map
 read_all_bms_assets(BMSfolder, #{wav := WavFiles, bitmap := BitMaps}) ->
     WavData = #{ID => iidx_cli:read_file(filename:join(BMSfolder, Filename))
                 || ID := Filename <- WavFiles},

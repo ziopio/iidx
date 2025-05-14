@@ -13,7 +13,8 @@
 -export([abort/2]).
 -export([read_file/1]).
 -export([write_file/2]).
-
+-export([find_files/2]).
+-export([assert_path_exists/1]).
 %--- API -----------------------------------------------------------------------
 
 success(Text) -> success(Text, []).
@@ -53,6 +54,21 @@ write_file(Filename, Binary) ->
         {error, Reason} ->
             iidx_cli:abort("Cannot write file ~s for reason ~p", [Filename,
                                                                   Reason])
+    end.
+
+find_files(BMSfolder, Termination) ->
+    Wildcard = binary_to_list(filename:join(BMSfolder, "*." ++ Termination)),
+    case filelib:wildcard(Wildcard) of
+        [] ->
+            iidx_cli:abort("Cannot find ~p files in folder ~p", [Termination, BMSfolder]);
+        Files ->
+            Files
+    end.
+
+assert_path_exists(Path) ->
+    case filelib:is_dir(Path) of
+        true -> ok;
+        false -> iidx_cli:abort("Path is not a directory: ~p",[Path])
     end.
 
 %--- Internal ------------------------------------------------------------------
