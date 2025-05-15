@@ -17,20 +17,28 @@ cli() -> #{
             long => "-identifier",
             type => binary,
             default => <<"32999">>
+        },
+        #{
+            name => outdir,
+            short => $o,
+            long => "-outdir",
+            type => binary,
+            default => "."
         }
     ],
     help => "Converts a BMS song into the .1 format a compatible with IIDX",
     handler => fun convert/1
 }.
 
-convert(#{bms_folder := BMSfolder, iidx_id := IIDXid}) ->
+convert(#{bms_folder := BMSfolder, iidx_id := IIDXid, outdir := OutDir}) ->
     BMSongData = read_bms_folder(BMSfolder),
     iidx_cli:success("BMS data has been loaded!"),
     iidx_cli:info("Now converting song for IIDX 32 PinkyCrush!"),
     IIDXFiles = convert_bms_song_into_iidx(BMSongData, IIDXid),
     iidx_cli:success("Conversion completed!"),
     iidx_cli:info("Writing necessary file..."),
-    [iidx_cli:write_file(Name, Binary) || Name := Binary <- IIDXFiles],
+    [iidx_cli:write_file(filename:join(OutDir, Name), Binary)
+     || Name := Binary <- IIDXFiles],
     iidx_cli:success("Done!"),
     ok.
 
