@@ -14,6 +14,7 @@
 -export([read_file/1]).
 -export([write_file/2]).
 -export([find_files/2]).
+-export([exec/2]).
 -export([assert_path_exists/1]).
 %--- API -----------------------------------------------------------------------
 
@@ -71,7 +72,30 @@ assert_path_exists(Path) ->
         false -> iidx_cli:abort("Path is not a directory: ~p",[Path])
     end.
 
+exec(Program, Args) ->
+    PortOptions = [
+        binary,
+        {args, Args},
+        exit_status,
+        stderr_to_stdout,
+        hide
+    ],
+    Port = erlang:open_port({spawn_executable, Program}, PortOptions),
+    collect_port_data(Port, <<>>).
+
 %--- Internal ------------------------------------------------------------------
+
+collect_port_data(Port, Acc) ->
+    receive
+        {Port, {data, {eol, Data}}} ->
+            collect_port_data(Port, <<Acc/binary, Data/binary>>);
+        {Port, {data, {noeol, Data}}} ->
+            collect_port_data(Port, <<Acc/binary, Data/binary>>);
+        {Port, {exit_status, 0}} ->
+            Acc;
+        {Port, {exit_status, Status}} ->
+            iidx_cli:abort("Port exited with status ~p", [Status])
+    end.
 
 format(Format, Args) ->
     io:format(Format ++ "~n", Args).

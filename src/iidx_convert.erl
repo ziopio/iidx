@@ -61,11 +61,10 @@ merge_bms_file_references(BMSCharts) ->
 
 % Read all the assets of the BMS files into a single map
 read_all_bms_assets(BMSfolder, #{wav := WavFiles, bitmap := BitMaps}) ->
-    WavData = #{ID => iidx_cli:read_file(filename:join(BMSfolder, Filename))
-                || ID := Filename <- WavFiles},
+    WavData = #{ID => read_wav(BMSfolder, Filename) || ID := Filename <- WavFiles},
     BitMapData = #{ID => iidx_cli:read_file(filename:join(BMSfolder, Filename))
                     || ID := Filename <- BitMaps},
-    PreviewBin = iidx_cli:read_file(filename:join(BMSfolder, "preview.wav")),
+    PreviewBin = read_wav(BMSfolder, <<"preview.wav">>),
     Preview = #{
         data => PreviewBin,
         track => 0,
@@ -73,6 +72,23 @@ read_all_bms_assets(BMSfolder, #{wav := WavFiles, bitmap := BitMaps}) ->
         loop => 0
     },
     #{wav => WavData, bitmap => BitMapData, preview => Preview}.
+
+read_wav(BMSfolder, Filename) ->
+    case filelib:is_regular(filename:join(BMSfolder, Filename)) of
+        true ->
+            iidx_cli:read_file(filename:join(BMSfolder, Filename));
+        false ->
+            convert_ogg_to_wav(BMSfolder, Filename),
+            iidx_cli:read_file(filename:join(BMSfolder, Filename))
+    end.
+
+convert_ogg_to_wav(BMSfolder, Filename) ->
+    OggFilename = <<(filename:rootname(Filename))/binary, ".ogg">>,
+    iidx_cli:info("Converting ~s -> .wav", [OggFilename]),
+    OggPath = binary_to_list(filename:join(BMSfolder, OggFilename)),
+    WavPath = binary_to_list(filename:join(BMSfolder, Filename)),
+    FFMPEG = os:find_executable("ffmpeg"),
+    iidx_cli:exec(FFMPEG, ["-i", OggPath, WavPath]).
 
 convert_bms_song_into_iidx({BMSCharts, Assets}, IIDXid) ->
     #{wav := WavMap,
@@ -275,7 +291,7 @@ parse_long_beats(ChannelNotes, BPM) ->
         ChannelNotes),
     Notes.
 
- gen_s3vs(WavMap, WavIndex) ->
+gen_s3vs(WavMap, WavIndex) ->
     IndexToBin = #{V => maps:get(K, WavMap) || K := V <- WavIndex},
     SortedKeySounds = [Bin || {_, Bin} <- lists:sort(maps:to_list(IndexToBin))],
     % The unknown field is left empty for every keysound,
