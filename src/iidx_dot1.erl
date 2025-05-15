@@ -108,8 +108,8 @@ rec_decode_directory(N, Max, ChartPos, _) when N > Max ->
     lists:reverse(ChartPos);
 rec_decode_directory(N, Max, ChartPos, <<0:32/integer-little,
                                         0:32/integer-little,
-                                        Binary/binary>>) -> % Skipping empty directories, should I track this or not ?
-    iidx_cli:info("Skipping empty directory ~p", [N]),
+                                        Binary/binary>>) ->
+    % iidx_cli:info("Skipping empty directory ~p", [N]),
     rec_decode_directory(N+1, Max, ChartPos, Binary);
 rec_decode_directory(N, Max, ChartPos, <<Offset:32/integer-little,
                                         Length:32/integer-little,
@@ -131,8 +131,7 @@ rec_decode_chart(<<Offset:32/integer-little, % in ticks
                   Binary/binary>>, Events) ->
     {Type, Param, Value} = decode_event(EventType, EventParam, EventValue),
     Event = {Offset, Type, Param, Value},
-    iidx_cli:info("Offset = ~p, Type = ~p, Param = ~p, Value = ~p",
-        [Offset, Type, Param, Value]),
+   % iidx_cli:info("Offset = ~p, Type = ~p, Param = ~p, Value = ~p", [Offset, Type, Param, Value]),
     rec_decode_chart(Binary, [Event | Events]).
 
 decode_event(Type, Param, Value) ->

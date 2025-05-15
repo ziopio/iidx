@@ -76,7 +76,7 @@ read_all_bms_assets(BMSfolder, #{wav := WavFiles, bitmap := BitMaps}) ->
     Preview = #{
         data => PreviewBin,
         track => 0,
-        attenuation => 0,
+        attenuation => 1,
         loop => 0
     },
     #{wav => WavData, bitmap => BitMapData, preview => Preview}.
@@ -106,6 +106,7 @@ convert_bms_song_into_iidx({BMSCharts, Assets}, IIDXid) ->
     IndexedIDs = lists:zip(maps:keys(WavMap), lists:seq(1, map_size(WavMap))),
     WavIDs = #{K => I || {K, I} <- IndexedIDs},
     IIDXCharts = [convert_bms_chart(C, WavIDs) || C <- BMSCharts],
+    file:write_file("iidx_charts.debug.txt", io_lib:format("~p", [IIDXCharts])),
     Dot1Bin = iidx_dot1:encode(IIDXCharts),
     S3Vs = gen_s3vs(WavMap, WavIDs),
     S3PBin = iidx_s3p:encode(S3Vs),
@@ -140,9 +141,9 @@ convert_bms_chart(Chart, WavIDs) ->
       p1_notes := P1Notes,
       p2_notes := P2Notes
     } = FinalState,
-    InitialSongSetup =
+    SongSetup =
         [
-            {0, note_count_info, 1, P1Notes},
+            {0, note_count_info, p1, P1Notes},
             {0, note_count_info, p2, P2Notes},
             {0, meter_info, 4, 4},
             {0, tempo_change, 100, InitialBPM * 100},
@@ -153,10 +154,18 @@ convert_bms_chart(Chart, WavIDs) ->
             {0, timing_window_info, 3, 3},
             {0, timing_window_info, 4, 8},
             {0, timing_window_info, 5, 18},
-            {0,bgm_sound,0,1},
+            {0, bgm_sound, 0, 1},
             {0, measure_bar, 0, 0}
         ],
-    lists:sort(InitialSongSetup ++ IIDXmessages).
+    SortedMessages = lists:sort(IIDXmessages),
+    {LastTicks, _, _, _} = lists:last(SortedMessages),
+    Footer = [
+        {LastTicks + 1000, end_of_song, 0, 0},
+        {LastTicks + 1000, end_of_song, 1, 0},
+        {LastTicks + 1000, measure_bar, 0, 0},
+        {LastTicks + 1000, measure_bar, 1, 0}
+    ],
+    SongSetup ++ SortedMessages ++ Footer.
 
 convert_bms_message({Track, BMSChannel, Notes}, State) ->
     #{bpm := BPM} = State,
