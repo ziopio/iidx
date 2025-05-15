@@ -20,13 +20,20 @@ cli() -> #{
             name => iidx_folder,
             type => binary,
             default => "."
+        },
+        #{
+            name => outdir,
+            short => $o,
+            long => "-outdir",
+            type => binary,
+            default => "."
         }
     ],
     help => "Converts a BMS song into the .1 format a compatible with IIDX",
     handler => fun mix/1
 }.
 
-mix(#{bms_folder := BMSfolder, iidx_folder := IIDXfolder}) ->
+mix(#{bms_folder := BMSfolder, iidx_folder := IIDXfolder, outdir := OutDir}) ->
     iidx_cli:assert_path_exists(IIDXfolder),
     iidx_cli:assert_path_exists(BMSfolder),
 
@@ -39,7 +46,7 @@ mix(#{bms_folder := BMSfolder, iidx_folder := IIDXfolder}) ->
     BMSSongInfo = merge_song_metadata(BMSCharts),
     iidx_cli:info("~p", [BMSSongInfo]),
     NewIIDXData = add_song_to_catalog(32999, BMSSongInfo, IIDXData),
-    write_iidx_files(NewIIDXData),
+    write_iidx_files(NewIIDXData, OutDir),
     ok.
 
 %--- Internals -----------------------------------------------------------------
@@ -175,8 +182,8 @@ add_song_to_catalog(SongID, BMSSongInfo, IIDXData) ->
         ChartsSpecs),
     IIDXData#{music_data := MusicData#{data := MData ++ [Entry2]}}.
 
-write_iidx_files(NewIIDXData) ->
+write_iidx_files(NewIIDXData, OutDir) ->
     #{
         music_data := MusicData
     } = NewIIDXData,
-    iidx_cli:write_file("music_data.bin", iidx_music_data:encode(MusicData)).
+    iidx_cli:write_file(filename:join(OutDir, "music_data.bin"), iidx_music_data:encode(MusicData)).
