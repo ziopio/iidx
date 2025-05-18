@@ -29,7 +29,7 @@ cli() -> #{
             default => "."
         }
     ],
-    help => "Converts a BMS song into the .1 format a compatible with IIDX",
+    help => "Extracts metadata from a BMS folder and adds it to the IIDX music_data.bin file",
     handler => fun mix/1
 }.
 
@@ -39,7 +39,7 @@ mix(#{bms_folder := BMSfolder, iidx_folder := IIDXfolder, outdir := OutDir}) ->
 
     IIDXData = read_iidx_files(IIDXfolder),
 
-    BMSfiles = iidx_cli:find_files(BMSfolder, "bms"),
+    BMSfiles = iidx_cli:find_files(BMSfolder, "*.bms"),
     iidx_cli:info("Found BMS files: ~p", [BMSfiles]),
     BMSBinaries = [iidx_cli:read_file(BMSfile) || BMSfile <- BMSfiles],
     BMSCharts = [iidx_bms:decode(BMSBinary) || BMSBinary <- BMSBinaries],
@@ -156,7 +156,7 @@ add_song_to_catalog(SongID, BMSSongInfo, IIDXData) ->
               dpa_ident => 48,
               dpl_ident => 48,
               bga_delay => 0,
-              bga_filename => <<51,50,48,56,49,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0>>,
+              bga_filename => <<(integer_to_binary(SongID))/binary, (binary:copy(<<0>>, 32 - 5))/binary>>,
               afp_flag => 0,
               afp_data => binary:copy(<<0>>, 320),
               unknown_section2 => <<0,0,0,0>>},
