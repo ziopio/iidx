@@ -47,7 +47,7 @@ convert(#{bms_folder := BMSfolder, iidx_id := IIDXid, outdir := OutDir}) ->
 
 read_bms_folder(BMSfolder) ->
     iidx_cli:assert_path_exists(BMSfolder),
-    BMSfiles = iidx_cli:find_files(BMSfolder, "bms"),
+    BMSfiles = iidx_cli:find_files(BMSfolder, "*.bms"),
     iidx_cli:info("Found BMS files: ~p", [BMSfiles]),
     BMSBinaries = [iidx_cli:read_file(BMSfile) || BMSfile <- BMSfiles],
     BMSCharts = [iidx_bms:decode(BMSBinary) || BMSBinary <- BMSBinaries],
@@ -60,46 +60,64 @@ merge_bms_file_references(BMSCharts) ->
     lists:foldl(
         fun(Chart, Assets) ->
             BitMaps = mapz:deep_get([header, bitmap], Chart),
-            WavFiles = mapz:deep_get([header, wav], Chart),
-            BMSrefs = #{wav => WavFiles, bitmap => BitMaps},
+            WavFiles = mapz:deep_get([header, audio], Chart),
+            BMSrefs = #{audio => WavFiles, bitmap => BitMaps},
             mapz:deep_merge(BMSrefs, Assets)
         end,
         #{},
         BMSCharts).
 
 % Read all the assets of the BMS files into a single map
-read_all_bms_assets(BMSfolder, #{wav := WavFiles, bitmap := BitMaps}) ->
-    WavData = #{ID => read_wav(BMSfolder, Filename) || ID := Filename <- WavFiles},
+read_all_bms_assets(BMSfolder, #{audio := WavFiles, bitmap := BitMaps}) ->
+    WavData = #{ID => read_audio(BMSfolder, Filename) || ID := Filename <- WavFiles},
     BitMapData = #{ID => iidx_cli:read_file(filename:join(BMSfolder, Filename))
                     || ID := Filename <- BitMaps},
-    PreviewBin = read_wav(BMSfolder, <<"preview.wav">>),
+    PreviewBin = read_audio(BMSfolder, <<"preview">>),
     Preview = #{
         data => PreviewBin,
         track => 0,
         attenuation => 1,
         loop => 0
     },
-    #{wav => WavData, bitmap => BitMapData, preview => Preview}.
+    #{audio => WavData, bitmap => BitMapData, preview => Preview}.
 
-read_wav(BMSfolder, Filename) ->
-    case filelib:is_regular(filename:join(BMSfolder, Filename)) of
-        true ->
-            iidx_cli:read_file(filename:join(BMSfolder, Filename));
-        false ->
-            convert_ogg_to_wav(BMSfolder, Filename),
-            iidx_cli:read_file(filename:join(BMSfolder, Filename))
-    end.
+read_audio(BMSfolder, <<"preview">> = Filename) ->
+    case iidx_cli:find_files(BMSfolder, <<Filename/binary, ".*">>) of
+        [File] ->
+            convert_audiofile_to_wav(File);
+        _ ->
+            ok
+    end,
+    WavFilename = <<(filename:rootname(Filename))/binary, ".wav">>,
+    iidx_cli:read_file(filename:join(BMSfolder, WavFilename));
+read_audio(BMSfolder, Filename) ->
+    case iidx_cli:find_files(BMSfolder, <<Filename/binary, ".*">>) of
+        [File] ->
+            convert_audiofile_to_asf(File);
+        _ ->
+            ok
+    end,
+    AsfFilename = <<(filename:rootname(Filename))/binary, ".asf">>,
+    iidx_cli:read_file(filename:join(BMSfolder, AsfFilename)).
 
-convert_ogg_to_wav(BMSfolder, Filename) ->
-    OggFilename = <<(filename:rootname(Filename))/binary, ".ogg">>,
-    iidx_cli:info("Converting ~s -> .wav", [OggFilename]),
-    OggPath = binary_to_list(filename:join(BMSfolder, OggFilename)),
-    WavPath = binary_to_list(filename:join(BMSfolder, Filename)),
+convert_audiofile_to_wav(FilePath) ->
+    WavFilePath = filename:rootname(FilePath) ++ ".wav",
+    iidx_cli:info("Converting ~s -> ~s", [FilePath, WavFilePath]),
     FFMPEG = os:find_executable("ffmpeg"),
-    iidx_cli:exec(FFMPEG, ["-i", OggPath, WavPath]).
+    iidx_cli:exec(FFMPEG, ["-i", FilePath, WavFilePath]).
+
+convert_audiofile_to_asf(FilePath) ->
+    AsfFilePath = filename:rootname(FilePath) ++ ".asf",
+    iidx_cli:info("Converting ~s -> ~s", [FilePath, AsfFilePath]),
+    FFMPEG = os:find_executable("ffmpeg"),
+    iidx_cli:exec(FFMPEG, [
+        "-i",
+        FilePath,
+        "-c:a", "wmav2",
+        AsfFilePath]).
 
 convert_bms_song_into_iidx({BMSCharts, Assets}, IIDXid) ->
-    #{wav := WavMap,
+    #{audio := WavMap,
       bitmap := _,
       preview := Preview} = Assets,
     iidx_cli:info("Using id ~p", [IIDXid]),
@@ -124,7 +142,7 @@ convert_bms_chart(Chart, WavIDs) ->
         messages => [],
         p1_notes => 0,
         p2_notes => 0,
-        wav_index => WavIDs
+        audio_index => WavIDs
     },
     BMSMessages = mapz:deep_get([data, messages], Chart),
     FinalState = lists:foldl(
@@ -192,7 +210,7 @@ add_notes(TrackTicks, {LengthType, NoteSide, Key}, Notes, State) ->
     #{
       bpm := BPM,
       messages := Messages,
-      wav_index := WavIndex
+      audio_index := WavIndex
     } = State,
     NoteList = case LengthType of
         short -> parse_single_beats(Notes, BPM);
@@ -311,6 +329,5 @@ parse_long_beats(ChannelNotes, BPM) ->
 gen_s3vs(WavMap, WavIndex) ->
     IndexToBin = #{V => maps:get(K, WavMap) || K := V <- WavIndex},
     SortedKeySounds = [Bin || {_, Bin} <- lists:sort(maps:to_list(IndexToBin))],
-    % The unknown field is left empty for every keysound,
-    % I do not know a better option
-    [#{unk => <<0:32>>, data => S} || S <- SortedKeySounds].
+    % The unknown field could be anything, maybe is an unique ID
+    [#{unk => crypto:strong_rand_bytes(4), data => S} || S <- SortedKeySounds].

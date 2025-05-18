@@ -106,7 +106,8 @@ decode_line(<<"#LNTYPE ", N/binary>>, S) ->
 decode_line(<<"#TOTAL ", N/binary>>, S) ->
     mapz:deep_put([header, gauge_total], N, S);
 decode_line(<<"#WAV", NUM:2/binary, " ", FileName/binary>>, S) ->
-    mapz:deep_put([header, wav, NUM], FileName, S);
+    Rootname = filename:rootname(FileName),
+    mapz:deep_put([header, audio, NUM], Rootname, S);
 decode_line(<<"#BMP", NUM:2/binary, " ", Bitmap/binary>>, S) ->
     mapz:deep_put([header, bitmap, NUM], Bitmap, S);
 decode_line(<<"*---------------------- EXPANSION FIELD">>, S) ->

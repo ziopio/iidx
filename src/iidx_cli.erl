@@ -57,11 +57,11 @@ write_file(Filename, Binary) ->
                                                                   Reason])
     end.
 
-find_files(BMSfolder, Termination) ->
-    Wildcard = binary_to_list(filename:join(BMSfolder, "*." ++ Termination)),
-    case filelib:wildcard(Wildcard) of
+find_files(BMSfolder, Wildcard) ->
+    FullWildcard = binary_to_list(filename:join(BMSfolder, Wildcard)),
+    case filelib:wildcard(FullWildcard) of
         [] ->
-            iidx_cli:abort("Cannot find ~p files in folder ~p", [Termination, BMSfolder]);
+            iidx_cli:abort("Cannot find ~p files in folder ~p", [Wildcard, BMSfolder]);
         Files ->
             Files
     end.
