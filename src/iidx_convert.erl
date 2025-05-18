@@ -53,7 +53,13 @@ read_bms_folder(BMSfolder) ->
     BMSCharts = [iidx_bms:decode(BMSBinary) || BMSBinary <- BMSBinaries],
     BMSrefs = merge_bms_file_references(BMSCharts),
     BMSAssets = read_all_bms_assets(BMSfolder, BMSrefs),
-    {BMSCharts, BMSAssets}.
+    SortedCharts = lists:sort(fun cmp_play_level/2, BMSCharts),
+    {SortedCharts, BMSAssets}.
+
+cmp_play_level(Chart1, Chart2) ->
+    Level1 = mapz:deep_get([header, playlevel], Chart1),
+    Level2 = mapz:deep_get([header, playlevel], Chart2),
+    binary_to_integer(Level1) =< binary_to_integer(Level2).
 
 % Merge the assets of the BMS files into a single map
 merge_bms_file_references(BMSCharts) ->
