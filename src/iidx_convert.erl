@@ -228,7 +228,24 @@ add_notes(TrackTicks, {LengthType, NoteSide, Key}, Notes, State) ->
         NoteList),
     State1 = count_notes(NewMessages, State),
     State1#{messages => NewMessages ++ Messages};
-add_notes(_, _, _, State) ->
+add_notes(TrackTicks, bgm_sound, Notes, State) ->
+    #{
+      bpm := BPM,
+      messages := Messages,
+      audio_index := WavIndex
+    } = State,
+    NoteList = parse_single_beats(Notes, BPM),
+    NewMessages = lists:foldl(
+        fun({TicksOffset, Sound, _}, Msgs) ->
+            Ticks = TrackTicks + TicksOffset,
+            SongIndex = maps:get(Sound, WavIndex),
+            [{Ticks, bgm_sound, 0, SongIndex} | Msgs]
+        end,
+        [],
+        NoteList),
+    State#{messages => NewMessages ++ Messages};
+add_notes(_, E, _, State) ->
+    iidx_cli:warn("Ignoring IIDX Event: ~p", [E]),
     State.
 
 sample_change(Ticks, NoteSide, Key, SongIndex) ->
