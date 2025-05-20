@@ -44,7 +44,6 @@ convert(#{bms_folder := BMSfolder, iidx_id := IIDXid, outdir := OutDir}) ->
 
 %--- Internals -----------------------------------------------------------------
 
-
 read_bms_folder(BMSfolder) ->
     iidx_cli:assert_path_exists(BMSfolder),
     BMSfiles = iidx_cli:find_files(BMSfolder, "*.bms"),
@@ -136,9 +135,11 @@ convert_bms_song_into_iidx({BMSCharts, Assets}, IIDXid) ->
     S3PBin = iidx_s3p:encode(S3Vs),
     Pre2dxBin = iidx_2dx:encode(#{name => <<IIDXid/binary>>,
                                   files => #{"preview.wav" => Preview}}),
-    #{<<IIDXid/binary, ".1">> => Dot1Bin,
-      <<IIDXid/binary, "_pre.2dx">> => Pre2dxBin,
-      <<IIDXid/binary, ".s3p">> => S3PBin}.
+    Files = #{<<IIDXid/binary, ".1">> => Dot1Bin,
+              <<IIDXid/binary, "_pre.2dx">> => Pre2dxBin,
+              <<IIDXid/binary, ".s3p">> => S3PBin},
+    ExtraFiles = generate_video(Assets, IIDXid),
+    maps:merge(Files, ExtraFiles).
 
 convert_bms_chart(Chart, WavIDs) ->
     InitialBPM = mapz:deep_get([header, bpm], Chart),
@@ -354,3 +355,25 @@ gen_s3vs(WavMap, WavIndex) ->
     SortedKeySounds = [Bin || {_, Bin} <- lists:sort(maps:to_list(IndexToBin))],
     % The unknown field could be anything, maybe is an unique ID
     [#{unk => crypto:strong_rand_bytes(4), data => S} || S <- SortedKeySounds].
+
+generate_video(#{bitmap := BitMapMap}, _) when BitMapMap =:= #{} ->
+    iidx_cli:warn("No bitmap found, skipping video generation!"),
+    #{};
+generate_video(#{bitmap := BitMapMap}, IIDXid) ->
+    [FirstBitMap|_] = maps:values(BitMapMap),
+    TempDir = iidx_cli:get_temp_dir(),
+    TempImage = filename:join(TempDir, <<"temp_", IIDXid/binary, ".bmp">>),
+    TempVideo = filename:join(TempDir, <<"temp_", IIDXid/binary, ".mp4">>),
+    ok = file:write_file(TempImage, FirstBitMap),
+    FFMPEG = os:find_executable("ffmpeg"),
+    Args = [
+        "-loop", "1",
+        "-i", TempImage,
+        "-c:v", "libx264", "-t", "1", "-pix_fmt", "yuv420p",
+        TempVideo
+    ],
+    iidx_cli:exec(FFMPEG, Args),
+    MP4Video = iidx_cli:read_file(TempVideo),
+    file:delete(TempVideo),
+    file:delete(TempImage),
+    #{<<IIDXid/binary, ".mp4">> => MP4Video}.

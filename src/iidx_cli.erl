@@ -15,6 +15,7 @@
 -export([write_file/2]).
 -export([find_files/2]).
 -export([exec/2]).
+-export([get_temp_dir/0]).
 -export([assert_path_exists/1]).
 %--- API -----------------------------------------------------------------------
 
@@ -82,6 +83,20 @@ exec(Program, Args) ->
     ],
     Port = erlang:open_port({spawn_executable, Program}, PortOptions),
     collect_port_data(Port, <<>>).
+
+get_temp_dir() ->
+    case os:type() of
+        {win32, _} ->
+            case os:getenv("TEMP") of
+                false -> os:getenv("TMP");
+                Temp -> Temp
+            end;
+        _ ->
+            case os:getenv("TMPDIR") of
+                false -> "/tmp";
+                TmpDir -> TmpDir
+            end
+    end.
 
 %--- Internal ------------------------------------------------------------------
 
