@@ -14,7 +14,6 @@
 decode(MusicDataFileBinary) ->
     {Header, DataBin} = decode_header(MusicDataFileBinary),
     Data = decode_data(DataBin),
-    iidx_cli:info("Total entries: ~p", [length(Data)]),
     #{header => Header, data => Data}.
 
 encode(#{header := Header, data := Data}) ->
@@ -158,7 +157,6 @@ encode_header(#{version := Version,
                 total_entries := TotalEntries}, SongIDs) ->
     ?assert(?MAX_ENTRIES(Version) == TotalEntries),
     SongIDSection = encode_song_index(Version, SongIDs, TotalEntries),
-    iidx_cli:info("Encoding ~p song IDs", [length(SongIDs)]),
     <<"IIDX",
       Version:32/little,
       (length(SongIDs)):32/integer-little,
