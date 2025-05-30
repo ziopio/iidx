@@ -17,6 +17,7 @@
 -export([exec/2]).
 -export([get_temp_dir/0]).
 -export([assert_path_exists/1]).
+
 %--- API -----------------------------------------------------------------------
 
 success(Text) -> success(Text, []).
@@ -49,10 +50,9 @@ read_file(Filename) ->
     end.
 
 write_file(Filename, Binary) ->
-    iidx_cli:info("Writing file: ~s", [Filename]),
     case file:write_file(Filename, Binary) of
         ok ->
-            ok;
+            iidx_cli:success("Written file: ~s", [Filename]);
         {error, Reason} ->
             iidx_cli:abort("Cannot write file ~s for reason ~p", [Filename,
                                                                   Reason])
