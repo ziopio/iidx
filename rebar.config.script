@@ -1,0 +1,64 @@
+% This script conditionally includes the iidx_iconv NIF build
+% into the project compilation, based on the presence of the
+% libiconv.lib and iconv.h files.
+%
+% The iconv library (libiconv) is a C library that converts
+% between different character encodings.
+% The iidx_iconv nif dll needs libiconv to convert between
+% Shift-JIS and UTF-8 encodings.
+%
+% libiconv.lib
+% This should be a static library built for Windows,
+% As alternative, it could be a lib for importing a dll
+% but I prefer to ship libiconv inside the iidx_iconv nif dll.
+% The reason is to have one dll less to depend on.
+%
+% iconv.h
+% This should be the header file for the iconv library,
+% you can copy that from the source code you used to build libiconv.lib.
+
+RequiredFiles = [
+    "c_src/libiconv.lib",
+    "c_src/iconv.h"
+],
+
+MissingFiles = [F || F <- RequiredFiles, not filelib:is_regular(F)],
+
+PortSpecs =
+    [
+        % Use pc plugin to compile the iidx_iconv nif dll
+        {plugins, [pc]},
+        {provider_hooks, [
+            {pre, [
+                {compile, {pc, compile}},
+                {clean, {pc, clean}}
+            ]}
+         ]},
+        % Ship the iidx_iconv nif dll inside the escript package
+        % The dll will be later unpacked at runtime
+        {escript_incl_priv, [{iidx, "*.dll"}]},
+        {port_specs, [
+            {"priv/iidx_iconv.dll", [
+                "c_src/iidx_iconv.c"
+            ]}
+        ]},
+        % Add include and libpath to the compiler flags
+        {port_env, [
+            {"CFLAGS", "$CFLAGS /I\"" ++ code:lib_dir(erts, include) ++ "\" /I\"./c_src\""},
+            {"LDFLAGS", "$LDFLAGS /LIBPATH:\"./c_src\" libiconv.lib"}
+        ]},
+        % Define ICONV to enable shift-jis support in the code
+        {erl_opts, [
+            {d, 'ICONV'}
+        ]}
+    ],
+
+case length(MissingFiles) =:= 0 of
+    true ->
+        io:format("\e[32m===> IIDX is configured to use iconv, supporting shift-jis! ~n\e[0m"),
+        CONFIG ++ PortSpecs;
+    false ->
+        io:format("\e[31m===> Missing expected files: ~p~n\e[0m", [MissingFiles]),
+        io:format("\e[33m===> IIDX configured without iconv, shift-jis support is disabled! ~n\e[0m"),
+        CONFIG
+end.

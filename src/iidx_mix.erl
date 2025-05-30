@@ -2,10 +2,14 @@
 
 -export([cli/0]).
 
+-include_lib("xmerl/include/xmerl.hrl").
+
 -define(music_artist_yomi, "contents/data/info/0/music_artist_yomi.xml").
 -define(video_music_list, "contents/data/info/0/video_music_list.xml").
 -define(music_title_yomi, "contents/data/info/0/music_title_yomi.xml").
 -define(music_data, "contents/data/info/0/music_data.bin").
+
+-define(shift_jis_prolog, "<?xml version=\"1.0\" encoding=\"Shift-JIS\"?>").
 
 %--- API -----------------------------------------------------------------------
 
@@ -47,7 +51,7 @@ mix(#{bms_folder := BMSfolder, iidx_folder := IIDXfolder, outdir := OutDir}) ->
     iidx_cli:info("~p", [BMSSongInfo]),
     NewIIDXData = add_song_to_catalog(32999, BMSSongInfo, IIDXData),
     write_iidx_files(NewIIDXData, OutDir),
-    ok.
+    iidx_cli:success("Done!").
 
 %--- Internals -----------------------------------------------------------------
 
@@ -87,18 +91,10 @@ merge_song_metadata(BMSCharts) ->
         end,
         #{charts_specs => []},
         BMSCharts).
-
 read_iidx_files(IIDXfolder) ->
-   %MusicArtistYomi = iidx_cli:read_file(filename:join(IIDXfolder, ?music_artist_yomi)),
-   %VideoMusicList = iidx_cli:read_file(filename:join(IIDXfolder, ?video_music_list)),
-   %MusicTitleYomi = iidx_cli:read_file(filename:join(IIDXfolder, ?music_title_yomi)),
-    MusicData = iidx_cli:read_file(filename:join(IIDXfolder, ?music_data)),
-    #{
-        %music_artist_yomi => xmerl_scan:string(binary_to_list(MusicArtistYomi)),
-        %video_music_list => xmerl_scan:string(binary_to_list(VideoMusicList)),
-        %music_title_yomi => xmerl_scan:string(binary_to_list(MusicTitleYomi)),
-        music_data => iidx_music_data:decode(MusicData)
-    }.
+   MusicData = iidx_cli:read_file(filename:join(IIDXfolder, ?music_data)),
+   IIDXData = read_shift_jis_files(IIDXfolder),
+   IIDXData#{music_data => iidx_music_data:decode(MusicData)}.
 
 add_song_to_catalog(SongID, BMSSongInfo, IIDXData) ->
     #{
@@ -112,18 +108,21 @@ add_song_to_catalog(SongID, BMSSongInfo, IIDXData) ->
         %subartist := SubArtistMap,
         charts_specs := ChartsSpecs
     } = BMSSongInfo,
-    Entry = #{title => <<Title/binary, (binary:copy(<<0>>, 256 - byte_size(Title)))/binary>>,
+    TitleWithNulls = insert_null_bytes(Title),
+    ArtistWithNulls = insert_null_bytes(Artist),
+    GenreWithNulls = insert_null_bytes(Genre),
+    Entry = #{title => <<TitleWithNulls/binary, (binary:copy(<<0>>, 256 - byte_size(TitleWithNulls)))/binary>>,
               title_ascii => <<Title/binary, (binary:copy(<<0>>, 64 - byte_size(Title)))/binary>>,
-              genre => <<Genre/binary, (binary:copy(<<0>>, 128 - byte_size(Genre)))/binary>>,
-              artist => <<Artist/binary, (binary:copy(<<0>>, 256 - byte_size(Artist)))/binary>>,
+              genre => <<GenreWithNulls/binary, (binary:copy(<<0>>, 128 - byte_size(GenreWithNulls)))/binary>>,
+              artist => <<ArtistWithNulls/binary, (binary:copy(<<0>>, 256 - byte_size(ArtistWithNulls)))/binary>>,
               subtitle => binary:copy(<<0>>, 256),
               texture_title => 0,
               texture_artist => 0,
               texture_genre => 0,
               texture_load => 0,
               texture_list => 0,
-              texture_subtitle => 0,
-              font_idx => 4,
+              texture_subtitle => 1,
+              font_idx => 2,
               game_version => 32,
               other_folder => 1,
               bemani_folder => 0,
@@ -180,10 +179,153 @@ add_song_to_catalog(SongID, BMSSongInfo, IIDXData) ->
         end,
         Entry,
         ChartsSpecs),
-    IIDXData#{music_data := MusicData#{data := MData ++ [Entry2]}}.
+    NewMusicData = MusicData#{data := MData ++ [Entry2]},
+    NewData = edit_shift_jis_files(SongID, Title, Artist, IIDXData),
+    NewData#{music_data => NewMusicData}.
 
-write_iidx_files(NewIIDXData, OutDir) ->
+write_iidx_files(IIDXData, OutDir) ->
     #{
         music_data := MusicData
-    } = NewIIDXData,
-    iidx_cli:write_file(filename:join(OutDir, "music_data.bin"), iidx_music_data:encode(MusicData)).
+    } = IIDXData,
+    MusicDataBinary = iidx_music_data:encode(MusicData),
+    MusicDataFilename = filename:join(OutDir, "music_data.bin"),
+    iidx_cli:write_file(MusicDataFilename, MusicDataBinary),
+    write_shift_jis_files(OutDir, IIDXData).
+
+insert_null_bytes(Binary) ->
+    << <<Char:8, 0:8>> || <<Char:8>> <= Binary >>.
+
+-ifdef(ICONV).
+
+read_shift_jis_files(IIDXfolder) ->
+    MusicArtistYomi = iidx_cli:read_file(filename:join(IIDXfolder, ?music_artist_yomi)),
+    VideoMusicList = iidx_cli:read_file(filename:join(IIDXfolder, ?video_music_list)),
+    MusicTitleYomi = iidx_cli:read_file(filename:join(IIDXfolder, ?music_title_yomi)),
+    MusicArtistYomiUtf8 = iidx_iconv:convert("shift-jis", "utf-8", MusicArtistYomi),
+    VideoMusicListUtf8 = iidx_iconv:convert("shift-jis", "utf-8", VideoMusicList),
+    MusicTitleYomiUtf8 = iidx_iconv:convert("shift-jis", "utf-8", MusicTitleYomi),
+    {ArtistXML, _} = xmerl_scan:string(binary_to_list(MusicArtistYomiUtf8), [{encoding, "utf-8"}]),
+    {VideoListXML, _} = xmerl_scan:string(binary_to_list(VideoMusicListUtf8), [{encoding, "utf-8"}]),
+    {TitleXML, _} = xmerl_scan:string(binary_to_list(MusicTitleYomiUtf8), [{encoding, "utf-8"}]),
+    #{
+        music_artist_yomi => ArtistXML,
+        video_music_list => VideoListXML,
+        music_title_yomi => TitleXML
+    }.
+
+edit_shift_jis_files(SongID, Title, Artist, IIDXData) ->
+    #{
+        music_artist_yomi := ArtistXML,
+        music_title_yomi := TitleXML,
+        video_music_list := VideoListXML
+    } = IIDXData,
+    NewMusicTitleYomi = add_yomi_to_xml(SongID, Title, TitleXML),
+    NewMusicArtistYomi = add_yomi_to_xml(SongID, Artist, ArtistXML),
+    NewVideoMusicList = add_video_music_list_entry(SongID, Title, Artist, VideoListXML),
+    IIDXData#{
+        music_artist_yomi => NewMusicArtistYomi,
+        video_music_list => NewVideoMusicList,
+        music_title_yomi => NewMusicTitleYomi
+    }.
+
+add_yomi_to_xml(SongID, Title, XML) ->
+    % Create new data element
+    NewData = #xmlElement{
+        name = data,
+        attributes = [],
+        content = [
+            #xmlText{value = "\n    "},
+            #xmlElement{
+                name = index,
+                attributes = [#xmlAttribute{name = '__type', value = "s32"}],
+                content = [#xmlText{value = integer_to_list(SongID)}]
+            },
+            #xmlText{value = "\n    "},
+            #xmlElement{
+                name = yomi,
+                attributes = [#xmlAttribute{name = '__type', value = "str"}],
+                content = [#xmlText{value = Title}]
+            },
+            #xmlText{value = "\n  "}
+        ]
+    },
+    #xmlElement{name = data_list, content = DataList} = XML,
+    XML#xmlElement{
+        content = [NewData | DataList]
+    }.
+
+
+add_video_music_list_entry(SongID, Title, Artist, XML) ->
+    % Create new music element
+    NewMusic = #xmlElement{
+        name = music,
+        attributes = [#xmlAttribute{name = id, value = integer_to_list(SongID)}],
+        content = [
+            #xmlText{value = "\n    "},
+            #xmlElement{
+                name = info,
+                attributes = [],
+                content = [
+                    #xmlText{value = "\n      "},
+                    #xmlElement{
+                        name = title_name,
+                        attributes = [],
+                        content = [#xmlText{value = Title}]
+                    },
+                    #xmlText{value = "\n      "},
+                    #xmlElement{
+                        name = artist_name,
+                        attributes = [],
+                        content = [#xmlText{value = Artist}]
+                    },
+                    #xmlText{value = "\n      "},
+                    #xmlElement{
+                        name = play_video_flags,
+                        attributes = [],
+                        content = [#xmlText{value = "6"}]
+                    },
+                    #xmlText{value = "\n    "}
+                ]
+            },
+            #xmlText{value = "\n  "}
+        ]
+    },
+    #xmlElement{name = mdb, content = MusicList} = XML,
+    XML#xmlElement{
+        content = [#xmlText{value = "\n  "}, NewMusic | MusicList]
+    }.
+
+write_shift_jis_files( OutDir, IIDXData) ->
+    #{
+        music_artist_yomi := MusicArtistYomi,
+        music_title_yomi := MusicTitleYomi,
+        video_music_list := VideoMusicList
+    } = IIDXData,
+    MusicTitleYomiNewBinary = export_shift_jis_xml(MusicTitleYomi),
+    MusicArtistYomiNewBinary = export_shift_jis_xml(MusicArtistYomi),
+    VideoMusicListNewBinary = export_shift_jis_xml(VideoMusicList),
+    MusicTitleYomiFilename = filename:join(OutDir, "music_title_yomi.xml"),
+    MusicArtistYomiFilename = filename:join(OutDir, "music_artist_yomi.xml"),
+    VideoMusicListFilename = filename:join(OutDir, "video_music_list.xml"),
+    iidx_cli:write_file(MusicTitleYomiFilename, MusicTitleYomiNewBinary),
+    iidx_cli:write_file(MusicArtistYomiFilename, MusicArtistYomiNewBinary),
+    iidx_cli:write_file(VideoMusicListFilename, VideoMusicListNewBinary).
+
+export_shift_jis_xml(XML) ->
+    Binary = unicode:characters_to_binary(
+        xmerl:export_simple([XML], xmerl_xml, [{prolog, ?shift_jis_prolog}])),
+    iidx_iconv:convert("utf-8", "shift-jis", Binary).
+
+-else.
+% Empty functions for when iconv is not available
+
+read_shift_jis_files(_) ->
+    #{}.
+
+edit_shift_jis_files(_, _, _, IIDXData) ->
+    IIDXData.
+
+write_shift_jis_files(_, _) ->
+    ok.
+
+-endif.

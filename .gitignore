@@ -19,3 +19,11 @@ logs
 rebar3.crashdump
 *~
 _*
+
+# Libiconv files
+c_src/libiconv.lib
+c_src/iconv.h
+c_src/iidx_iconv.obj
+priv/iidx_iconv.dll
+priv/iidx_iconv.lib
+priv/iidx_iconv.exp
