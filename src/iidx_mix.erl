@@ -31,13 +31,20 @@ cli() -> #{
             long => "-outdir",
             type => binary,
             default => "."
+        },
+        #{
+            name => song_id,
+            short => $i,
+            long => "-id",
+            type => integer,
+            default => 32097
         }
     ],
     help => "Extracts metadata from a BMS folder and adds it to the IIDX music_data.bin file",
     handler => fun mix/1
 }.
 
-mix(#{bms_folder := BMSfolder, iidx_folder := IIDXfolder, outdir := OutDir}) ->
+mix(#{bms_folder := BMSfolder, iidx_folder := IIDXfolder, outdir := OutDir, song_id := SongID}) ->
     iidx_cli:assert_path_exists(IIDXfolder),
     iidx_cli:assert_path_exists(BMSfolder),
 
@@ -49,7 +56,7 @@ mix(#{bms_folder := BMSfolder, iidx_folder := IIDXfolder, outdir := OutDir}) ->
     BMSCharts = [iidx_bms:decode(BMSBinary) || BMSBinary <- BMSBinaries],
     BMSSongInfo = merge_song_metadata(BMSCharts),
     iidx_cli:info("~p", [BMSSongInfo]),
-    NewIIDXData = add_song_to_catalog(32999, BMSSongInfo, IIDXData),
+    NewIIDXData = add_song_to_catalog(SongID, BMSSongInfo, IIDXData),
     write_iidx_files(NewIIDXData, OutDir),
     iidx_cli:success("Done!").
 
