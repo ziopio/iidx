@@ -109,7 +109,7 @@ convert_audiofile_to_wav(FilePath) ->
     WavFilePath = filename:rootname(FilePath) ++ ".wav",
     iidx_cli:info("Converting ~s -> ~s", [FilePath, WavFilePath]),
     FFMPEG = os:find_executable("ffmpeg"),
-    iidx_cli:exec(FFMPEG, ["-i", FilePath, WavFilePath]).
+    iidx_cli:exec(FFMPEG, ["-i", FilePath, "-t", "10", WavFilePath]).
 
 convert_audiofile_to_asf(FilePath) ->
     AsfFilePath = filename:rootname(FilePath) ++ ".asf",
