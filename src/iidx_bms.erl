@@ -4,6 +4,7 @@
 
 %% BMS Channel classification
 -define(BGM, "01").
+-define(LENGTH_OF_MEASURE, "02").
 -define(TEMPO_CHANGE, "03").
 -define(BGA, "04").
 -define(POOR_BITMAP, "06").
@@ -108,59 +109,63 @@ decode_line(<<"#TOTAL ", N/binary>>, S) ->
 decode_line(<<"#WAV", NUM:2/binary, " ", FileName/binary>>, S) ->
     Rootname = filename:rootname(FileName),
     mapz:deep_put([header, audio, NUM], Rootname, S);
+decode_line(<<"#BACKBMP", " ", Bitmap/binary>>, S) ->
+    mapz:deep_put([header, back_bitmap], Bitmap, S);
 decode_line(<<"#BMP", NUM:2/binary, " ", Bitmap/binary>>, S) ->
-    mapz:deep_put([header, bitmap, NUM], Bitmap, S);
+    mapz:deep_put([header, bitmaps, NUM], Bitmap, S);
 decode_line(<<"*---------------------- EXPANSION FIELD">>, S) ->
     S;
 decode_line(<<"*---------------------- MAIN DATA FIELD">>, S) ->
     S;
 decode_line(<<"#", Track:3/binary, Channel:2/binary, ":", Message/binary>>, S) ->
     Messages = mapz:deep_get([data, messages], S, []),
-    NewMsg = {Track, decode_channel(Channel), decode_message(Message)},
+    ChannelType = decode_channel(Channel),
+    NewMsg = {Track, ChannelType, decode_message(ChannelType, Message)},
     mapz:deep_put([data, messages], Messages ++ [NewMsg], S);
 decode_line(Line, S) ->
     iidx_cli:warn("Unhandled ~p...", [Line]),
     S.
 
-decode_channel(<<?BGM>>)             -> bgm;
-decode_channel(<<?TEMPO_CHANGE>>)    -> tempo_change;
-decode_channel(<<?BGA>>)             -> bga;
-decode_channel(<<?POOR_BITMAP>>)     -> poor_bitmap;
-decode_channel(<<?BGA_LAYER>>)       -> bga_layer;
-decode_channel(<<?EXT_BPM>>)         -> ext_bpm;
-decode_channel(<<?P1_SCRATCH>>)      -> p1_scratch;
-decode_channel(<<?P1_KEY_1>>)        -> p1_key_1;
-decode_channel(<<?P1_KEY_2>>)        -> p1_key_2;
-decode_channel(<<?P1_KEY_3>>)        -> p1_key_3;
-decode_channel(<<?P1_KEY_4>>)        -> p1_key_4;
-decode_channel(<<?P1_KEY_5>>)        -> p1_key_5;
-decode_channel(<<?P1_KEY_6>>)        -> p1_key_6;
-decode_channel(<<?P1_KEY_7>>)        -> p1_key_7;
-decode_channel(<<?P1_SCRATCH_LONG>>) -> p1_scratch_long;
-decode_channel(<<?P1_KEY_1_LONG>>)   -> p1_key_1_long;
-decode_channel(<<?P1_KEY_2_LONG>>)   -> p1_key_2_long;
-decode_channel(<<?P1_KEY_3_LONG>>)   -> p1_key_3_long;
-decode_channel(<<?P1_KEY_4_LONG>>)   -> p1_key_4_long;
-decode_channel(<<?P1_KEY_5_LONG>>)   -> p1_key_5_long;
-decode_channel(<<?P1_KEY_6_LONG>>)   -> p1_key_6_long;
-decode_channel(<<?P1_KEY_7_LONG>>)   -> p1_key_7_long;
-decode_channel(<<?P2_SCRATCH>>)      -> p2_scratch;
-decode_channel(<<?P2_KEY_1>>)        -> p2_key_1;
-decode_channel(<<?P2_KEY_2>>)        -> p2_key_2;
-decode_channel(<<?P2_KEY_3>>)        -> p2_key_3;
-decode_channel(<<?P2_KEY_41>>)       -> p2_key_4;
-decode_channel(<<?P2_KEY_5>>)        -> p2_key_5;
-decode_channel(<<?P2_KEY_6>>)        -> p2_key_6;
-decode_channel(<<?P2_KEY_7>>)        -> p2_key_7;
-decode_channel(<<?P2_SCRATCH_LONG>>) -> p2_scratch_long;
-decode_channel(<<?P2_KEY_1_LONG>>)   -> p2_key_1_long;
-decode_channel(<<?P2_KEY_2_LONG>>)   -> p2_key_2_long;
-decode_channel(<<?P2_KEY_3_LONG>>)   -> p2_key_3_long;
-decode_channel(<<?P2_KEY_4_LONG>>)   -> p2_key_4_long;
-decode_channel(<<?P2_KEY_5_LONG>>)   -> p2_key_5_long;
-decode_channel(<<?P2_KEY_6_LONG>>)   -> p2_key_6_long;
-decode_channel(<<?P2_KEY_7_LONG>>)   -> p2_key_7_long;
-decode_channel(C)                    ->
+decode_channel(<<?BGM>>)               -> bgm;
+decode_channel(<<?LENGTH_OF_MEASURE>>) -> length_of_measure;
+decode_channel(<<?TEMPO_CHANGE>>)      -> tempo_change;
+decode_channel(<<?BGA>>)               -> bga;
+decode_channel(<<?POOR_BITMAP>>)       -> poor_bitmap;
+decode_channel(<<?BGA_LAYER>>)         -> bga_layer;
+decode_channel(<<?EXT_BPM>>)           -> ext_bpm;
+decode_channel(<<?P1_SCRATCH>>)        -> p1_scratch;
+decode_channel(<<?P1_KEY_1>>)          -> p1_key_1;
+decode_channel(<<?P1_KEY_2>>)          -> p1_key_2;
+decode_channel(<<?P1_KEY_3>>)          -> p1_key_3;
+decode_channel(<<?P1_KEY_4>>)          -> p1_key_4;
+decode_channel(<<?P1_KEY_5>>)          -> p1_key_5;
+decode_channel(<<?P1_KEY_6>>)          -> p1_key_6;
+decode_channel(<<?P1_KEY_7>>)          -> p1_key_7;
+decode_channel(<<?P1_SCRATCH_LONG>>)   -> p1_scratch_long;
+decode_channel(<<?P1_KEY_1_LONG>>)     -> p1_key_1_long;
+decode_channel(<<?P1_KEY_2_LONG>>)     -> p1_key_2_long;
+decode_channel(<<?P1_KEY_3_LONG>>)     -> p1_key_3_long;
+decode_channel(<<?P1_KEY_4_LONG>>)     -> p1_key_4_long;
+decode_channel(<<?P1_KEY_5_LONG>>)     -> p1_key_5_long;
+decode_channel(<<?P1_KEY_6_LONG>>)     -> p1_key_6_long;
+decode_channel(<<?P1_KEY_7_LONG>>)     -> p1_key_7_long;
+decode_channel(<<?P2_SCRATCH>>)        -> p2_scratch;
+decode_channel(<<?P2_KEY_1>>)          -> p2_key_1;
+decode_channel(<<?P2_KEY_2>>)          -> p2_key_2;
+decode_channel(<<?P2_KEY_3>>)          -> p2_key_3;
+decode_channel(<<?P2_KEY_41>>)         -> p2_key_4;
+decode_channel(<<?P2_KEY_5>>)          -> p2_key_5;
+decode_channel(<<?P2_KEY_6>>)          -> p2_key_6;
+decode_channel(<<?P2_KEY_7>>)          -> p2_key_7;
+decode_channel(<<?P2_SCRATCH_LONG>>)   -> p2_scratch_long;
+decode_channel(<<?P2_KEY_1_LONG>>)     -> p2_key_1_long;
+decode_channel(<<?P2_KEY_2_LONG>>)     -> p2_key_2_long;
+decode_channel(<<?P2_KEY_3_LONG>>)     -> p2_key_3_long;
+decode_channel(<<?P2_KEY_4_LONG>>)     -> p2_key_4_long;
+decode_channel(<<?P2_KEY_5_LONG>>)     -> p2_key_5_long;
+decode_channel(<<?P2_KEY_6_LONG>>)     -> p2_key_6_long;
+decode_channel(<<?P2_KEY_7_LONG>>)     -> p2_key_7_long;
+decode_channel(C)                      ->
     iidx_cli:warn("Unknown channel ~p", [C]),
     {unknown_channel, C}.
 
@@ -174,7 +179,10 @@ decode_channel(C)                    ->
 % For example:
 % 00030000
 % 03
-decode_message(Message) -> rec_decode_message(Message, []).
+decode_message(length_of_measure, Message) ->
+    binary_to_float(Message);
+decode_message(_, Message) ->
+    rec_decode_message(Message, []).
 
 rec_decode_message(<<>>, Notes) ->
     lists:reverse(Notes);
