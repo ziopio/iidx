@@ -31,7 +31,8 @@ cli() -> #{
 }.
 
 convert(#{bms_folder := BMSfolder, iidx_id := IIDXid, outdir := OutDir}) ->
-    BMSongData = read_bms_folder(BMSfolder),
+    {SortedCharts, BMSAssets} = read_bms_folder(BMSfolder),
+    BMSongData = create_sound_index(SortedCharts, BMSAssets),
     iidx_cli:success("BMS data has been loaded!"),
     iidx_cli:info("Now converting song for IIDX 32 PinkyCrush!"),
     IIDXFiles = convert_bms_song_into_iidx(BMSongData, IIDXid),
@@ -64,17 +65,26 @@ cmp_play_level(Chart1, Chart2) ->
 merge_bms_file_references(BMSCharts) ->
     lists:foldl(
         fun(Chart, Assets) ->
-            BitMaps = mapz:deep_get([header, bitmap], Chart),
+            BitMaps = get_all_images(Chart),
             WavFiles = mapz:deep_get([header, audio], Chart),
-            BMSrefs = #{audio => WavFiles, bitmap => BitMaps},
+            BMSrefs = #{audio => WavFiles, bitmaps => BitMaps},
             mapz:deep_merge(BMSrefs, Assets)
         end,
         #{},
         BMSCharts).
 
+get_all_images(Chart) ->
+    BitMaps = mapz:deep_get([header, bitmaps], Chart, #{}),
+    BackBitMapMap = case mapz:deep_get([header, back_bitmap], Chart, undefined) of
+        undefined -> #{};
+        BackBitMap -> #{back_bitmap => BackBitMap}
+    end,
+    maps:merge(BitMaps, BackBitMapMap).
+
 % Read all the assets of the BMS files into a single map
-read_all_bms_assets(BMSfolder, #{audio := WavFiles, bitmap := BitMaps}) ->
+read_all_bms_assets(BMSfolder, #{audio := WavFiles, bitmaps := BitMaps}) ->
     WavData = #{ID => read_audio(BMSfolder, Filename) || ID := Filename <- WavFiles},
+
     BitMapData = #{ID => iidx_cli:read_file(filename:join(BMSfolder, Filename))
                     || ID := Filename <- BitMaps},
     PreviewBin = read_audio(BMSfolder, <<"preview">>),
@@ -84,7 +94,7 @@ read_all_bms_assets(BMSfolder, #{audio := WavFiles, bitmap := BitMaps}) ->
         attenuation => 1,
         loop => 0
     },
-    #{audio => WavData, bitmap => BitMapData, preview => Preview}.
+    #{audio => WavData, bitmaps => BitMapData, preview => Preview}.
 
 read_audio(BMSfolder, <<"preview">> = Filename) ->
     case iidx_cli:find_files(BMSfolder, <<Filename/binary, ".*">>) of
@@ -109,7 +119,7 @@ convert_audiofile_to_wav(FilePath) ->
     WavFilePath = filename:rootname(FilePath) ++ ".wav",
     iidx_cli:info("Converting ~s -> ~s", [FilePath, WavFilePath]),
     FFMPEG = os:find_executable("ffmpeg"),
-    iidx_cli:exec(FFMPEG, ["-i", FilePath, "-t", "10", WavFilePath]).
+    iidx_cli:exec(FFMPEG, ["-y", "-i", FilePath, "-t", "10", WavFilePath]).
 
 convert_audiofile_to_asf(FilePath) ->
     AsfFilePath = filename:rootname(FilePath) ++ ".asf",
@@ -123,11 +133,10 @@ convert_audiofile_to_asf(FilePath) ->
 
 convert_bms_song_into_iidx({BMSCharts, Assets}, IIDXid) ->
     #{audio := WavMap,
-      bitmap := _,
+      sound_index := WavIDs,
+      bitmaps := _,
       preview := Preview} = Assets,
     iidx_cli:info("Using id ~p", [IIDXid]),
-    IndexedIDs = lists:zip(maps:keys(WavMap), lists:seq(1, map_size(WavMap))),
-    WavIDs = #{K => I || {K, I} <- IndexedIDs},
     IIDXCharts = [convert_bms_chart(C, WavIDs) || C <- BMSCharts],
     file:write_file("iidx_charts.debug.txt", io_lib:format("~p", [IIDXCharts])),
     Dot1Bin = iidx_dot1:encode(IIDXCharts),
@@ -356,10 +365,10 @@ gen_s3vs(WavMap, WavIndex) ->
     % The unknown field could be anything, maybe is an unique ID
     [#{unk => crypto:strong_rand_bytes(4), data => S} || S <- SortedKeySounds].
 
-generate_video(#{bitmap := BitMapMap}, _) when BitMapMap =:= #{} ->
+generate_video(#{bitmaps := BitMapMap}, _) when BitMapMap =:= #{} ->
     iidx_cli:warn("No bitmap found, skipping video generation!"),
     #{};
-generate_video(#{bitmap := BitMapMap}, IIDXid) ->
+generate_video(#{bitmaps := BitMapMap}, IIDXid) ->
     [FirstBitMap|_] = maps:values(BitMapMap),
     TempDir = iidx_cli:get_temp_dir(),
     TempImage = filename:join(TempDir, <<"temp_", IIDXid/binary, ".bmp">>),
@@ -377,3 +386,51 @@ generate_video(#{bitmap := BitMapMap}, IIDXid) ->
     file:delete(TempVideo),
     file:delete(TempImage),
     #{<<IIDXid/binary, ".mp4">> => MP4Video}.
+
+create_sound_index(BMSCharts, #{audio := WavMap} = Assets) ->
+    ExpectedKeysounds = parse_all_keysounds(BMSCharts),
+    SilentWavBinary = generate_silent_keysound(),
+    % If the song is missing keysounds, generate them.
+    CoherentWavData = lists:foldl(
+        fun(KeySound, Acc) ->
+            case maps:get(KeySound, WavMap, undefined) of
+                undefined ->
+                    iidx_cli:warn("Missing audio for keysound: ~p", [KeySound]),
+                    iidx_cli:warn("Using silent keysound as placeholder!"),
+                    maps:put(KeySound, SilentWavBinary, Acc);
+                _ -> Acc
+            end
+        end, WavMap, ExpectedKeysounds),
+    % Now every used keysound present in the BMS chart has its audio file.
+    % Create a map of the indices to the keysounds IDs.
+    IndexedIDs = lists:zip(maps:keys(CoherentWavData),
+                           lists:seq(1, map_size(CoherentWavData))),
+    WavIDs = #{K => I || {K, I} <- IndexedIDs},
+    {BMSCharts, Assets#{audio => CoherentWavData, sound_index => WavIDs}}.
+
+parse_all_keysounds(BMSCharts) ->
+    Notes = lists:foldl(
+        fun(Chart, Acc) ->
+            Events = mapz:deep_get([data, messages], Chart),
+            Notes = [ [C || C <- Content, C =/= <<"00">>]
+                    || {_Track, _Type, Content} <- Events, is_list(Content)],
+            [Notes|Acc]
+        end,
+        [],
+        BMSCharts),
+    sets:to_list(sets:from_list(lists:flatten(Notes))).
+
+generate_silent_keysound() ->
+    SilentKeysoundFile = filename:join(iidx_cli:get_temp_dir(), "empty.asf"),
+    % Generate 100ms of silence
+    FFMPEG = os:find_executable("ffmpeg"),
+    iidx_cli:exec(FFMPEG, [
+        "-f", "lavfi",
+        "-i", "anullsrc=channel_layout=stereo:sample_rate=44100",
+        "-t", "0.1",
+        "-c:a", "wmav2",
+        SilentKeysoundFile
+        ]),
+    Binary = iidx_cli:read_file(SilentKeysoundFile),
+    file:delete(SilentKeysoundFile),
+    Binary.
