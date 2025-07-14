@@ -90,35 +90,48 @@ decode(Dot1FileBinary) ->
     [decode_chart(Dir, Dot1FileBinary) || Dir <- Directories].
 
 encode(IIDX_Charts) ->
-    EncodedCharts = [encode_chart(Chart) || Chart <- IIDX_Charts],
-    EncodedDirectories = encode_directory(EncodedCharts),
-    iolist_to_binary([EncodedDirectories, EncodedCharts]).
+    EncodedCharts = [{difficulty2dir(Player, Difficulty), encode_chart(Chart)} ||
+                     {Player, Difficulty, Chart} <- IIDX_Charts],
+    SortedCharts = lists:sort(EncodedCharts),
+    Binaries = [C || {_,C} <- SortedCharts],
+    EncodedDirectories = encode_directory(Binaries),
+    iolist_to_binary([EncodedDirectories, Binaries]).
 
 %--- Internals -----------------------------------------------------------------
 
 % DECODING
+% TODO: I should verify if a song without Normal difficulty is valid
+% and if it has the first directory empty.
+decode_directory(<<0:32/integer-little, 0:32/integer-little, _/binary>>) ->
+    iidx_cli:abort("Unexpected: first .1 directory is empty!");
 decode_directory(<<FirstOffset:32/integer-little,
                   Length:32/integer-little,
                   Binary/binary>>) ->
     Directories = FirstOffset div 8,
-    rec_decode_directory(2, Directories, [{FirstOffset, Length}], Binary).
-
+    Index = 1,
+    {Player, Difficulty} = dir2difficulty(Index),
+    rec_decode_directory(Index + 1, Directories,
+                         [{Player, Difficulty, {FirstOffset, Length}}],
+                         Binary).
 
 rec_decode_directory(N, Max, ChartPos, _) when N > Max ->
     lists:reverse(ChartPos);
 rec_decode_directory(N, Max, ChartPos, <<0:32/integer-little,
                                         0:32/integer-little,
                                         Binary/binary>>) ->
-    % iidx_cli:info("Skipping empty directory ~p", [N]),
+    iidx_cli:info("Skipping empty directory ~p", [N]),
     rec_decode_directory(N+1, Max, ChartPos, Binary);
 rec_decode_directory(N, Max, ChartPos, <<Offset:32/integer-little,
                                         Length:32/integer-little,
                                         Binary/binary>>) ->
-    rec_decode_directory(N+1, Max, [{Offset, Length} | ChartPos], Binary).
+    iidx_cli:info("Found chart in directory ~p", [N]),
+    {Player, Difficulty} = dir2difficulty(N),
+    rec_decode_directory(N+1, Max, [{Player, Difficulty, {Offset, Length}} | ChartPos], Binary).
 
-decode_chart({Pos, Len}, Binary) ->
+decode_chart({Difficulty, {Pos, Len}}, Binary) ->
     ChartBinary = binary:part(Binary, Pos, Len),
-    rec_decode_chart(ChartBinary, []).
+    Chart = rec_decode_chart(ChartBinary, []),
+    {Difficulty, Chart}.
 
 rec_decode_chart(<<>>, _) ->
     error(chart_termination);
@@ -176,6 +189,8 @@ decode_key(K)            -> error({bad_key_code, K}).
 
 % ENCODING
 
+encode_directory(Charts) when length(Charts) < 3 ->
+    iidx_cli:abort("Too few charts, game requires at least 3 charts");
 encode_directory(Charts) when length(Charts) > ?PINKY_CRUSH_DIRECTORIES ->
     iidx_cli:abort("Too many charts, max is ~p", [?PINKY_CRUSH_DIRECTORIES]);
 encode_directory(Charts) ->
@@ -252,3 +267,29 @@ encode_key(key_6)   -> ?KEY_6;
 encode_key(key_7)   -> ?KEY_7;
 encode_key(scratch) -> ?SCRATCH;
 encode_key(K)       -> error({bad_key, K}).
+
+% I am not completly sure about the correctness of this mapping
+dir2difficulty(1)  -> {single, hyper};
+dir2difficulty(2)  -> {single, normal};
+dir2difficulty(3)  -> {single, another};
+dir2difficulty(4)  -> {single, beginner};
+dir2difficulty(5)  -> {single, leggendaria};
+dir2difficulty(7)  -> {double, hyper};
+dir2difficulty(8)  -> {double, normal};
+dir2difficulty(9)  -> {double, another};
+dir2difficulty(10) -> {double, beginner};
+dir2difficulty(11) -> {double, leggendaria};
+dir2difficulty(Index) ->
+    iidx_cli:warn("Unknown difficulty for directory index ~p", [Index]),
+    unknown.
+
+difficulty2dir(single, hyper) -> 1;
+difficulty2dir(single, normal) -> 2;
+difficulty2dir(single, another) -> 3;
+difficulty2dir(single, beginner) -> 4;
+difficulty2dir(single, leggendaria) -> 5;
+difficulty2dir(double, hyper) -> 7;
+difficulty2dir(double, normal) -> 8;
+difficulty2dir(double, another) -> 9;
+difficulty2dir(double, beginner) -> 10;
+difficulty2dir(double, leggendaria) -> 11.

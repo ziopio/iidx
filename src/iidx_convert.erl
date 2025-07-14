@@ -55,8 +55,7 @@ read_bms_folder(BMSfolder) ->
     BMSCharts = [iidx_bms:decode(BMSBinary) || BMSBinary <- BMSBinaries],
     BMSrefs = merge_bms_file_references(BMSCharts),
     BMSAssets = read_all_bms_assets(BMSfolder, BMSrefs),
-    SortedCharts = lists:sort(fun cmp_play_level/2, BMSCharts),
-    {SortedCharts, BMSAssets}.
+    {BMSCharts, BMSAssets}.
 
 cmp_play_level(Chart1, Chart2) ->
     Level1 = mapz:deep_get([header, playlevel], Chart1),
@@ -153,6 +152,8 @@ convert_bms_song_into_iidx({BMSCharts, Assets}, IIDXid) ->
     maps:merge(Files, ExtraFiles).
 
 convert_bms_chart(Chart, WavIDs) ->
+    Player = mapz:deep_get([header, player], Chart),
+    Difficulty = mapz:deep_get([header, difficulty], Chart),
     InitialBPM = mapz:deep_get([header, bpm], Chart),
     InitialState = #{
         last_track => 0,
@@ -204,7 +205,7 @@ convert_bms_chart(Chart, WavIDs) ->
         {LastTicks + 1000, measure_bar, 0, 0},
         {LastTicks + 1000, measure_bar, 1, 0}
     ],
-    SongSetup ++ SortedMessages ++ Footer.
+    {Player, Difficulty, SongSetup ++ SortedMessages ++ Footer}.
 
 convert_bms_message({Track, BMSChannel, Notes}, State) ->
     #{bpm := BPM} = State,

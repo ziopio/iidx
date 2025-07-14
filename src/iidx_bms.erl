@@ -95,9 +95,9 @@ decode_line(<<"#BPM", NUM:2/binary, " ", BPM/binary>>, S) ->
 decode_line(<<"#MIDIFILE ", MidiFile/binary>>, S) ->
     mapz:deep_put([header, midifile], MidiFile, S);
 decode_line(<<"#PLAYLEVEL ", PlayLevel/binary>>, S) ->
-    mapz:deep_put([header, playlevel], PlayLevel, S);
+    mapz:deep_put([header, playlevel], binary_to_integer(PlayLevel), S);
 decode_line(<<"#DIFFICULTY ", Difficulty/binary>>, S) ->
-    mapz:deep_put([header, difficulty], Difficulty, S);
+    mapz:deep_put([header, difficulty], decode_difficulty(Difficulty), S);
 decode_line(<<"#RANK ", Rank/binary>>, S) ->
     mapz:deep_put([header, rank], Rank, S);
 decode_line(<<"#STAGEFILE ", StageFile/binary>>, S) ->
@@ -188,3 +188,9 @@ rec_decode_message(<<>>, Notes) ->
     lists:reverse(Notes);
 rec_decode_message(<<Note:2/binary, Bin/binary>>, Notes) ->
     rec_decode_message(Bin, [Note | Notes]).
+
+decode_difficulty(<<"1">>) -> beginner;
+decode_difficulty(<<"2">>) -> normal;
+decode_difficulty(<<"3">>) -> hyper;
+decode_difficulty(<<"4">>) -> another;
+decode_difficulty(<<"5">>) -> leggendaria.

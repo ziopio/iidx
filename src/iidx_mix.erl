@@ -76,8 +76,7 @@ merge_song_metadata(BMSCharts) ->
               long_note_type := LongNoteType,
               player := Player,
               playlevel := PlayLevel,
-              rank := Rank,
-              subartist := SubArtistMap
+              rank := Rank
             } = Header,
             ChartSpecific = #{
                 gauge_total => GaugeTotal,
@@ -92,7 +91,6 @@ merge_song_metadata(BMSCharts) ->
                 artist => Artist,
                 genre => Genre,
                 bpm => BPM,
-                subartist => SubArtistMap,
                 charts_specs => [ChartSpecific|ChartsSpecs]
             }
         end,
@@ -112,7 +110,6 @@ add_song_to_catalog(SongID, BMSSongInfo, IIDXData) ->
         artist := Artist,
         genre := Genre,
         %bpm := BPM,
-        %subartist := SubArtistMap,
         charts_specs := ChartsSpecs
     } = BMSSongInfo,
     TitleWithNulls = insert_null_bytes(Title),
@@ -171,18 +168,18 @@ add_song_to_catalog(SongID, BMSSongInfo, IIDXData) ->
               player := Player,
               playlevel := PlayLevel}, AccEntry) ->
             Key = case {Player, Difficulty} of
-                        {single, <<"1">>} -> spb_level;
-                        {single, <<"2">>} -> spn_level;
-                        {single, <<"3">>} -> sph_level;
-                        {single, <<"4">>} -> spa_level;
-                        {single, <<"5">>} -> spl_level;
-                        {couple, <<"1">>} -> dpb_level;
-                        {couple, <<"2">>} -> dpn_level;
-                        {couple, <<"3">>} -> dph_level;
-                        {couple, <<"4">>} -> dpa_level;
-                        {couple, <<"5">>} -> dpl_level
+                        {single, beginner} -> spb_level;
+                        {single, normal} -> spn_level;
+                        {single, hyper} -> sph_level;
+                        {single, another} -> spa_level;
+                        {single, leggendaria} -> spl_level;
+                        {double, beginner} -> dpb_level;
+                        {double, normal} -> dpn_level;
+                        {double, hyper} -> dph_level;
+                        {double, another} -> dpa_level;
+                        {double, leggendaria} -> dpl_level
                   end,
-            maps:put(Key, binary_to_integer(PlayLevel), AccEntry)
+            maps:put(Key, PlayLevel, AccEntry)
         end,
         Entry,
         ChartsSpecs),
