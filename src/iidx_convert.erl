@@ -2,6 +2,8 @@
 
 -export([cli/0]).
 
+-include_lib("stdlib/include/assert.hrl").
+
 %--- API -----------------------------------------------------------------------
 
 cli() -> #{
@@ -155,6 +157,7 @@ convert_bms_chart(Chart, WavIDs) ->
     InitialState = #{
         last_track => 0,
         bpm => InitialBPM,
+        partial_long_notes => #{},
         messages => [],
         p1_notes => 0,
         p2_notes => 0,
@@ -173,8 +176,10 @@ convert_bms_chart(Chart, WavIDs) ->
         BMSMessages),
     #{messages := IIDXmessages,
       p1_notes := P1Notes,
-      p2_notes := P2Notes
+      p2_notes := P2Notes,
+      partial_long_notes := PartialLongNotes
     } = FinalState,
+    ?assert(PartialLongNotes =:= #{}, "Partial long notes should be empty"),
     SongSetup =
         [
             {0, note_count_info, p1, P1Notes},
@@ -203,12 +208,14 @@ convert_bms_chart(Chart, WavIDs) ->
 
 convert_bms_message({Track, BMSChannel, Notes}, State) ->
     #{bpm := BPM} = State,
-     % A track is (240 / BPM) seconds long
-     % A Tick is 1/1000 of a second
+    % A track is (240 / BPM) seconds long
+    % A Tick is 1/1000 of a second
     TrackNumber = binary_to_integer(Track),
+   % io:format("TrackNumber: ~p~n", [TrackNumber]),
     TrackTicks = round(TrackNumber * (240 / BPM) * 1000),
     State1 = add_measure_bar(TrackNumber, TrackTicks, State),
     IIDXEvent = bms_channel_to_iidx_event(BMSChannel),
+   % io:format("IIDXEvent: ~p~n", [IIDXEvent]),
     add_notes(TrackTicks, IIDXEvent, Notes, State1).
 
 add_measure_bar(TrackNumber, TrackTicks, #{last_track := LastTrack,
@@ -222,35 +229,29 @@ add_measure_bar(TrackNumber, TrackTicks, #{last_track := LastTrack,
                    messages => [MeasureBar | Messages]}
     end.
 
-add_notes(TrackTicks, {LengthType, NoteSide, Key}, Notes, State) ->
-    #{
-      bpm := BPM,
-      messages := Messages,
+add_notes(TrackTicks, {LengthType, PlayerSide, Key}, Notes, State) ->
+    #{messages := Messages,
       audio_index := WavIndex
     } = State,
-    NoteList = case LengthType of
-        short -> parse_single_beats(Notes, BPM);
-        long -> parse_long_beats(Notes, BPM)
-    end,
+    Channel = {PlayerSide, Key},
+    {NoteList, State1} = parse_beats(Notes, LengthType, Channel, State),
     NewMessages = lists:foldl(
         fun({TicksOffset, Sound, Duration}, Msgs) ->
             Ticks = TrackTicks + TicksOffset,
             SongIndex = maps:get(Sound, WavIndex),
-            SampleChange = sample_change(Ticks, NoteSide, Key, SongIndex),
-            NoteStroke = {Ticks, NoteSide, Key, Duration},
+            SampleChange = sample_change(Ticks, PlayerSide, Key, SongIndex),
+            NoteStroke = {Ticks, PlayerSide, Key, Duration},
             [SampleChange, NoteStroke | Msgs]
         end,
         [],
         NoteList),
-    State1 = count_notes(NewMessages, State),
-    State1#{messages => NewMessages ++ Messages};
+    State2 = count_notes(NewMessages, State1),
+    State2#{messages => NewMessages ++ Messages};
 add_notes(TrackTicks, bgm_sound, Notes, State) ->
-    #{
-      bpm := BPM,
-      messages := Messages,
+    #{messages := Messages,
       audio_index := WavIndex
     } = State,
-    NoteList = parse_single_beats(Notes, BPM),
+    NoteList = parse_single_beats(Notes, State),
     NewMessages = lists:foldl(
         fun({TicksOffset, Sound, _}, Msgs) ->
             Ticks = TrackTicks + TicksOffset,
@@ -264,8 +265,8 @@ add_notes(_, E, _, State) ->
     iidx_cli:warn("Ignoring IIDX Event: ~p", [E]),
     State.
 
-sample_change(Ticks, NoteSide, Key, SongIndex) ->
-    Event = case NoteSide of
+sample_change(Ticks, PlayerSide, Key, SongIndex) ->
+    Event = case PlayerSide of
         p1_note -> p1_sample_change;
         p2_note -> p2_sample_change
     end,
@@ -319,7 +320,14 @@ bms_channel_to_iidx_event(p2_key_6_long)   -> {long, p2_note, key_6};
 bms_channel_to_iidx_event(p2_key_7_long)   -> {long, p2_note, key_7};
 bms_channel_to_iidx_event(E)               -> throw({event_skip, E}).
 
-parse_single_beats(ChannelNotes, BPM) ->
+
+parse_beats(ChannelNotes, short, _, State) ->
+    NoteList = parse_single_beats(ChannelNotes, State),
+    {NoteList, State};
+parse_beats(ChannelNotes, long, Channel, State) ->
+    parse_long_beats(ChannelNotes, Channel, State).
+
+parse_single_beats(ChannelNotes, #{bpm := BPM}) ->
     TrackResolution = length(ChannelNotes),
     TrackTicks = 240 / BPM * 1000,
     NoteStride = round(TrackTicks / TrackResolution),
@@ -335,29 +343,49 @@ parse_single_beats(ChannelNotes, BPM) ->
         ChannelNotes),
     Notes.
 
-parse_long_beats(ChannelNotes, BPM) ->
+parse_long_beats(ChannelNotes, Channel, State) ->
+    #{bpm := BPM, partial_long_notes := PartialLongNotes} = State,
     TrackResolution = length(ChannelNotes),
+   % io:format("TrackResolution: ~p~n", [TrackResolution]),
     TrackTicks = 240 / BPM * 1000,
     NoteStride = round(TrackTicks / TrackResolution),
-    {undefined, Notes} = lists:foldl(fun
+    % Tracks each long note in the channel to measure its length.
+    % Each note is present 2 times to signal start and end.
+    % Once the note ends we store it together with its length.
+    % Long notes could extend over multiple tracks.
+    % This function needs to return the partial note state.
+    %
+    % Accumulator is {Offset, CurrentSound, CurrentLenght, NotesAcc}
+    {PreviousKeySound, PreviousLenght} =
+                        maps:get(Channel, PartialLongNotes, {undefined, 0}),
+    StartAcc = {0, PreviousKeySound, PreviousLenght, []},
+    {_, LastKeySound, LeftLenght, Notes} = lists:foldl(fun
         (<<"00">>, {Offset, undefined, NoteLenght, NotesAcc}) ->
             NewOffset = Offset + NoteStride,
             {NewOffset, undefined, NoteLenght, NotesAcc};
-        (<<"00">>, {Offset, LastSound, NoteLenght, NotesAcc}) ->
+        (<<"00">>, {Offset, LastKeySound, NoteLenght, NotesAcc}) ->
             NewNoteLenght = NoteLenght + NoteStride,
             NewOffset = Offset + NoteStride,
-            {NewOffset, LastSound, NewNoteLenght, NotesAcc};
-        (NewSound, {Offset, undefined, 0, NotesAcc}) ->
+            {NewOffset, LastKeySound, NewNoteLenght, NotesAcc};
+        (NewKeySound, {Offset, undefined, 0, NotesAcc}) ->
             NewOffset = Offset + NoteStride,
-            {NewOffset, NewSound, NoteStride, NotesAcc};
-        (Sound, {Offset, Sound, NoteLenght, NotesAcc}) ->
+            {NewOffset, NewKeySound, NoteStride, NotesAcc};
+        (KeySound, {Offset, KeySound, NoteLenght, NotesAcc}) ->
             NewOffset = Offset + NoteStride,
-            LongNote = {Offset, Sound, NoteLenght + NoteStride},
+            LongNote = {Offset, KeySound, NoteLenght},
             {NewOffset, undefined, 0, [LongNote | NotesAcc]}
         end,
-        {0, undefined, 0, []},
+        StartAcc,
         ChannelNotes),
-    Notes.
+    % If the last key sound is undefined, it means that the long note has ended.
+    % Remove it from the partial long notes.
+    % Otherwise, update the partial long notes, with the last key sound and the left lenght.
+    NewPartialLongNotes = case LastKeySound of
+        undefined -> maps:remove(Channel, PartialLongNotes);
+        _ -> maps:put(Channel, {LastKeySound, LeftLenght}, PartialLongNotes)
+    end,
+    NewState = State#{partial_long_notes => NewPartialLongNotes},
+    {Notes, NewState}.
 
 gen_s3vs(WavMap, WavIndex) ->
     IndexToBin = #{V => maps:get(K, WavMap) || K := V <- WavIndex},
