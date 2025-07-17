@@ -50,9 +50,10 @@ read_file(Filename) ->
     end.
 
 write_file(Filename, Binary) ->
+    filelib:ensure_dir(Filename),
     case file:write_file(Filename, Binary) of
         ok ->
-            iidx_cli:success("Written file: ~s", [Filename]);
+            iidx_cli:info("📄✅ Written file: ~s", [Filename]);
         {error, Reason} ->
             iidx_cli:abort("Cannot write file ~s for reason ~p", [Filename,
                                                                   Reason])
