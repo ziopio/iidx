@@ -32,7 +32,8 @@ cli() ->
         ],
         commands => #{
             "convert" => iidx_convert:cli(),
-            "mix" => iidx_mix:cli()
+            "mix" => iidx_mix:cli(),
+            "mod" => iidx_mod:cli()
         },
         handler => fun(_) -> print_help() end
     }.
