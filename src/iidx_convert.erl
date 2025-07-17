@@ -1,6 +1,7 @@
 -module(iidx_convert).
 
 -export([cli/0]).
+-export([convert/2]).
 
 -include_lib("stdlib/include/assert.hrl").
 
@@ -16,9 +17,9 @@ cli() -> #{
         #{
             name => iidx_id,
             short => $i,
-            long => "-identifier",
-            type => binary,
-            default => <<"32999">>
+            long => "-id",
+            type => integer,
+            default => 32097
         },
         #{
             name => outdir,
@@ -29,38 +30,34 @@ cli() -> #{
         }
     ],
     help => "Converts a BMS song into the .1 format a compatible with IIDX",
-    handler => fun convert/1
+    handler => fun convert_cmd/1
 }.
 
-convert(#{bms_folder := BMSfolder, iidx_id := IIDXid, outdir := OutDir}) ->
+convert_cmd(#{bms_folder := BMSfolder, iidx_id := IIDXid, outdir := OutDir}) ->
+    IIDXData = convert(BMSfolder, IIDXid),
+    iidx_cli:success("Conversion completed!"),
+    iidx_cli:info("Writing necessary file..."),
+    iidx_data:write_iidx_files(IIDXData, OutDir),
+    iidx_cli:success("Done!").
+
+convert(BMSfolder, IIDXid) ->
     {SortedCharts, BMSAssets} = read_bms_folder(BMSfolder),
     BMSongData = create_sound_index(SortedCharts, BMSAssets),
     iidx_cli:success("BMS data has been loaded!"),
-    iidx_cli:info("Now converting song for IIDX 32 PinkyCrush!"),
-    IIDXFiles = convert_bms_song_into_iidx(BMSongData, IIDXid),
-    iidx_cli:success("Conversion completed!"),
-    iidx_cli:info("Writing necessary file..."),
-    [iidx_cli:write_file(filename:join(OutDir, Name), Binary)
-     || Name := Binary <- IIDXFiles],
-    iidx_cli:success("Done!"),
-    ok.
+    iidx_cli:info("🔄🎵 Now converting song for IIDX 32 PinkyCrush! 🐷"),
+    convert_bms_song_into_iidx(BMSongData, IIDXid).
 
 %--- Internals -----------------------------------------------------------------
 
 read_bms_folder(BMSfolder) ->
     iidx_cli:assert_path_exists(BMSfolder),
     BMSfiles = iidx_cli:find_files(BMSfolder, "*.bms"),
-    iidx_cli:info("Found BMS files: ~p", [BMSfiles]),
+    iidx_cli:info("🧩🔍 Found BMS files: ~p", [BMSfiles]),
     BMSBinaries = [iidx_cli:read_file(BMSfile) || BMSfile <- BMSfiles],
     BMSCharts = [iidx_bms:decode(BMSBinary) || BMSBinary <- BMSBinaries],
     BMSrefs = merge_bms_file_references(BMSCharts),
     BMSAssets = read_all_bms_assets(BMSfolder, BMSrefs),
     {BMSCharts, BMSAssets}.
-
-cmp_play_level(Chart1, Chart2) ->
-    Level1 = mapz:deep_get([header, playlevel], Chart1),
-    Level2 = mapz:deep_get([header, playlevel], Chart2),
-    binary_to_integer(Level1) =< binary_to_integer(Level2).
 
 % Merge the assets of the BMS files into a single map
 merge_bms_file_references(BMSCharts) ->
@@ -137,17 +134,17 @@ convert_bms_song_into_iidx({BMSCharts, Assets}, IIDXid) ->
       sound_index := WavIDs,
       bitmaps := _,
       preview := Preview} = Assets,
-    iidx_cli:info("Using id ~p", [IIDXid]),
+    iidx_cli:info("🆔🎯Using id ~p", [IIDXid]),
     IIDXCharts = [convert_bms_chart(C, WavIDs) || C <- BMSCharts],
     file:write_file("iidx_charts.debug.txt", io_lib:format("~p", [IIDXCharts])),
     Dot1Bin = iidx_dot1:encode(IIDXCharts),
     S3Vs = gen_s3vs(WavMap, WavIDs),
     S3PBin = iidx_s3p:encode(S3Vs),
-    Pre2dxBin = iidx_2dx:encode(#{name => <<IIDXid/binary>>,
+    Pre2dxBin = iidx_2dx:encode(#{name => <<(integer_to_binary(IIDXid))/binary>>,
                                   files => #{"preview.wav" => Preview}}),
-    Files = #{<<IIDXid/binary, ".1">> => Dot1Bin,
-              <<IIDXid/binary, "_pre.2dx">> => Pre2dxBin,
-              <<IIDXid/binary, ".s3p">> => S3PBin},
+    Files = #{<<(integer_to_binary(IIDXid))/binary, ".1">> => Dot1Bin,
+              <<(integer_to_binary(IIDXid))/binary, "_pre.2dx">> => Pre2dxBin,
+              <<(integer_to_binary(IIDXid))/binary, ".s3p">> => S3PBin},
     ExtraFiles = generate_video(Assets, IIDXid),
     maps:merge(Files, ExtraFiles).
 
@@ -400,8 +397,8 @@ generate_video(#{bitmaps := BitMapMap}, _) when BitMapMap =:= #{} ->
 generate_video(#{bitmaps := BitMapMap}, IIDXid) ->
     [FirstBitMap|_] = maps:values(BitMapMap),
     TempDir = iidx_cli:get_temp_dir(),
-    TempImage = filename:join(TempDir, <<"temp_", IIDXid/binary, ".bmp">>),
-    TempVideo = filename:join(TempDir, <<"temp_", IIDXid/binary, ".mp4">>),
+    TempImage = filename:join(TempDir, <<"temp_", (integer_to_binary(IIDXid))/binary, ".bmp">>),
+    TempVideo = filename:join(TempDir, <<"temp_", (integer_to_binary(IIDXid))/binary, ".mp4">>),
     ok = file:write_file(TempImage, FirstBitMap),
     FFMPEG = os:find_executable("ffmpeg"),
     Args = [
@@ -414,7 +411,7 @@ generate_video(#{bitmaps := BitMapMap}, IIDXid) ->
     MP4Video = iidx_cli:read_file(TempVideo),
     file:delete(TempVideo),
     file:delete(TempImage),
-    #{<<IIDXid/binary, ".mp4">> => MP4Video}.
+    #{<<(integer_to_binary(IIDXid))/binary, ".mp4">> => MP4Video}.
 
 create_sound_index(BMSCharts, #{audio := WavMap} = Assets) ->
     ExpectedKeysounds = parse_all_keysounds(BMSCharts),
