@@ -136,7 +136,7 @@ convert_bms_song_into_iidx({BMSCharts, Assets}, IIDXid) ->
       preview := Preview} = Assets,
     iidx_cli:info("🆔🎯Using id ~p", [IIDXid]),
     IIDXCharts = [convert_bms_chart(C, WavIDs) || C <- BMSCharts],
-    file:write_file("iidx_charts.debug.txt", io_lib:format("~p", [IIDXCharts])),
+    iidx_cli:write_file(filename:join(["iidx_charts_", integer_to_binary(IIDXid), ".txt"]), io_lib:format("~p", [IIDXCharts])),
     Dot1Bin = iidx_dot1:encode(IIDXCharts),
     S3Vs = gen_s3vs(WavMap, WavIDs),
     S3PBin = iidx_s3p:encode(S3Vs),
@@ -191,7 +191,6 @@ convert_bms_chart(Chart, WavIDs) ->
             {0, timing_window_info, 3, 3},
             {0, timing_window_info, 4, 8},
             {0, timing_window_info, 5, 18},
-            {0, bgm_sound, 0, 1},
             {0, measure_bar, 0, 0}
         ],
     SortedMessages = lists:sort(IIDXmessages),
