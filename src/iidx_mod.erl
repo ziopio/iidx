@@ -71,7 +71,7 @@ mod(#{iidx_folder := IIDXFolder,
     iidx_cli:info("Found BMS folders: ~p", [BMSFolders]),
     iidx_cli:info("Converting all BMS songs to IIDX format..."),
     convert_bms_songs(BMSFolders, NewSongIDs, ModFolder),
-    iidx_cli:info("🥁🎛️ Mixing all songs into music_data..."),
+    iidx_cli:info("🥁 Mixing all songs into music_data..."),
     IIDXData = iidx_data:read_iidx_files(IIDXFolder),
     NewIIDXData = lists:foldl(
         fun({SongFolder, SongID}, DataAcc) ->
@@ -79,10 +79,9 @@ mod(#{iidx_folder := IIDXFolder,
         end,
         IIDXData,
         lists:zip(BMSFolders, NewSongIDs)),
-    iidx_cli:info("💾📝 Writing music_data..."),
     iidx_data:write_iidx_files(NewIIDXData, ModFolder),
     iidx_cli:success("Done!"),
-    iidx_cli:info("🕹️🎶 Mod ~s has been successfully blended into the game! 🔥", [ModName]),
+    iidx_cli:info("🕹️ Mod '~s' has been successfully blended into the game! 🔥", [ModName]),
     ok.
 
 convert_bms_songs(BMSFolders, NewSongIDs, ModFolder) ->

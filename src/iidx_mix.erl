@@ -46,7 +46,6 @@ mix_cmd(#{bms_folder := BMSfolder, iidx_folder := IIDXfolder, outdir := OutDir, 
 
 mix(IIDXData, BMSfolder, SongID) ->
     BMSfiles = iidx_cli:find_files(BMSfolder, "*.bms"),
-    iidx_cli:info("Found BMS files: ~p", [BMSfiles]),
     BMSBinaries = [iidx_cli:read_file(BMSfile) || BMSfile <- BMSfiles],
     BMSCharts = [iidx_bms:decode(BMSBinary) || BMSBinary <- BMSBinaries],
     BMSSongInfo = merge_song_metadata(BMSCharts),

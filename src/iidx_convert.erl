@@ -36,15 +36,15 @@ cli() -> #{
 convert_cmd(#{bms_folder := BMSfolder, iidx_id := IIDXid, outdir := OutDir}) ->
     IIDXData = convert(BMSfolder, IIDXid),
     iidx_cli:success("Conversion completed!"),
-    iidx_cli:info("Writing necessary file..."),
     iidx_data:write_iidx_files(IIDXData, OutDir),
     iidx_cli:success("Done!").
 
 convert(BMSfolder, IIDXid) ->
+    iidx_cli:info("🍱 Opening '~s'...", [filename:basename(BMSfolder)]),
     {SortedCharts, BMSAssets} = read_bms_folder(BMSfolder),
     BMSongData = create_sound_index(SortedCharts, BMSAssets),
-    iidx_cli:success("BMS data has been loaded!"),
-    iidx_cli:info("🔄🎵 Now converting song for IIDX 32 PinkyCrush! 🐷"),
+    iidx_cli:info("BMS data has been loaded."),
+    iidx_cli:info("🔄 Now converting song for IIDX 32 PinkyCrush... 🐷"),
     convert_bms_song_into_iidx(BMSongData, IIDXid).
 
 %--- Internals -----------------------------------------------------------------
@@ -52,7 +52,6 @@ convert(BMSfolder, IIDXid) ->
 read_bms_folder(BMSfolder) ->
     iidx_cli:assert_path_exists(BMSfolder),
     BMSfiles = iidx_cli:find_files(BMSfolder, "*.bms"),
-    iidx_cli:info("🧩🔍 Found BMS files: ~p", [BMSfiles]),
     BMSBinaries = [iidx_cli:read_file(BMSfile) || BMSfile <- BMSfiles],
     BMSCharts = [iidx_bms:decode(BMSBinary) || BMSBinary <- BMSBinaries],
     BMSrefs = merge_bms_file_references(BMSCharts),
@@ -134,9 +133,8 @@ convert_bms_song_into_iidx({BMSCharts, Assets}, IIDXid) ->
       sound_index := WavIDs,
       bitmaps := _,
       preview := Preview} = Assets,
-    iidx_cli:info("🆔🎯Using id ~p", [IIDXid]),
+    iidx_cli:info("🆔 Using id ~p", [IIDXid]),
     IIDXCharts = [convert_bms_chart(C, WavIDs) || C <- BMSCharts],
-    iidx_cli:write_file(filename:join(["iidx_charts_", integer_to_binary(IIDXid), ".txt"]), io_lib:format("~p", [IIDXCharts])),
     Dot1Bin = iidx_dot1:encode(IIDXCharts),
     S3Vs = gen_s3vs(WavMap, WavIDs),
     S3PBin = iidx_s3p:encode(S3Vs),
@@ -469,7 +467,6 @@ generate_silent_keysound() ->
     Binary = iidx_cli:read_file(SilentKeysoundFile),
     file:delete(SilentKeysoundFile),
     Binary.
-
 
 find_lowest_denominator(LengthOfMeasure) ->
     rec_find_lowest_denominator(LengthOfMeasure, 2).
