@@ -153,6 +153,7 @@ convert_bms_chart(Chart, WavIDs) ->
     Difficulty = mapz:deep_get([header, difficulty], Chart),
     InitialBPM = mapz:deep_get([header, bpm], Chart),
     InitialState = #{
+        meter => 1.0,
         last_track => 0,
         bpm => InitialBPM,
         partial_long_notes => #{},
@@ -166,7 +167,7 @@ convert_bms_chart(Chart, WavIDs) ->
         fun(Message, State) ->
             try convert_bms_message(Message, State)
             catch throw:{event_skip, E} ->
-                iidx_cli:warn("Ignoring BMS message: ~p", [E]),
+                iidx_cli:warn("Unexpected BMS message: ~p", [E]),
                 State
             end
         end,
@@ -182,6 +183,7 @@ convert_bms_chart(Chart, WavIDs) ->
         [
             {0, note_count_info, p1, P1Notes},
             {0, note_count_info, p2, P2Notes},
+            % this is the default in BMS songs
             {0, meter_info, 4, 4},
             {0, tempo_change, 100, InitialBPM * 100},
             % The timing window is completly arbitrary
@@ -204,12 +206,9 @@ convert_bms_chart(Chart, WavIDs) ->
     {Player, Difficulty, SongSetup ++ SortedMessages ++ Footer}.
 
 convert_bms_message({Track, BMSChannel, Notes}, State) ->
-    #{bpm := BPM} = State,
-    % A track is (240 / BPM) seconds long
-    % A Tick is 1/1000 of a second
     TrackNumber = binary_to_integer(Track),
    % io:format("TrackNumber: ~p~n", [TrackNumber]),
-    TrackTicks = round(TrackNumber * (240 / BPM) * 1000),
+    TrackTicks = TrackNumber * track_ticks(State),
     State1 = add_measure_bar(TrackNumber, TrackTicks, State),
     IIDXEvent = bms_channel_to_iidx_event(BMSChannel),
    % io:format("IIDXEvent: ~p~n", [IIDXEvent]),
@@ -258,6 +257,14 @@ add_notes(TrackTicks, bgm_sound, Notes, State) ->
         [],
         NoteList),
     State#{messages => NewMessages ++ Messages};
+add_notes(TrackTicks, meter_info, LengthOfMeasure, State) ->
+    #{messages := Messages} = State,
+    {Numerator, Denominator} = find_lowest_denominator(LengthOfMeasure),
+    NewMessage = {TrackTicks, meter_info, Denominator, Numerator},
+    State#{
+        messages => [NewMessage | Messages],
+        meter => Numerator / Denominator
+    };
 add_notes(_, E, _, State) ->
     iidx_cli:warn("Ignoring IIDX Event: ~p", [E]),
     State.
@@ -281,41 +288,42 @@ count_notes(NewMessages, #{p1_notes := P1_notes,
         NewMessages),
     State#{p1_notes => P1, p2_notes => P2}.
 
-bms_channel_to_iidx_event(bgm)             -> bgm_sound;
-bms_channel_to_iidx_event(tempo_change)    -> tempo_change;
-bms_channel_to_iidx_event(p1_scratch)      -> {short, p1_note, scratch};
-bms_channel_to_iidx_event(p1_key_1)        -> {short, p1_note, key_1};
-bms_channel_to_iidx_event(p1_key_2)        -> {short, p1_note, key_2};
-bms_channel_to_iidx_event(p1_key_3)        -> {short, p1_note, key_3};
-bms_channel_to_iidx_event(p1_key_4)        -> {short, p1_note, key_4};
-bms_channel_to_iidx_event(p1_key_5)        -> {short, p1_note, key_5};
-bms_channel_to_iidx_event(p1_key_6)        -> {short, p1_note, key_6};
-bms_channel_to_iidx_event(p1_key_7)        -> {short, p1_note, key_7};
-bms_channel_to_iidx_event(p1_scratch_long) -> {long, p1_note, scratch};
-bms_channel_to_iidx_event(p1_key_1_long)   -> {long, p1_note, key_1};
-bms_channel_to_iidx_event(p1_key_2_long)   -> {long, p1_note, key_2};
-bms_channel_to_iidx_event(p1_key_3_long)   -> {long, p1_note, key_3};
-bms_channel_to_iidx_event(p1_key_4_long)   -> {long, p1_note, key_4};
-bms_channel_to_iidx_event(p1_key_5_long)   -> {long, p1_note, key_5};
-bms_channel_to_iidx_event(p1_key_6_long)   -> {long, p1_note, key_6};
-bms_channel_to_iidx_event(p1_key_7_long)   -> {long, p1_note, key_7};
-bms_channel_to_iidx_event(p2_scratch)      -> {short, p2_note, scratch};
-bms_channel_to_iidx_event(p2_key_1)        -> {short, p2_note, key_1};
-bms_channel_to_iidx_event(p2_key_2)        -> {short, p2_note, key_2};
-bms_channel_to_iidx_event(p2_key_3)        -> {short, p2_note, key_3};
-bms_channel_to_iidx_event(p2_key_4)        -> {short, p2_note, key_4};
-bms_channel_to_iidx_event(p2_key_5)        -> {short, p2_note, key_5};
-bms_channel_to_iidx_event(p2_key_6)        -> {short, p2_note, key_6};
-bms_channel_to_iidx_event(p2_key_7)        -> {short, p2_note, key_7};
-bms_channel_to_iidx_event(p2_scratch_long) -> {long, p2_note, scratch};
-bms_channel_to_iidx_event(p2_key_1_long)   -> {long, p2_note, key_1};
-bms_channel_to_iidx_event(p2_key_2_long)   -> {long, p2_note, key_2};
-bms_channel_to_iidx_event(p2_key_3_long)   -> {long, p2_note, key_3};
-bms_channel_to_iidx_event(p2_key_4_long)   -> {long, p2_note, key_4};
-bms_channel_to_iidx_event(p2_key_5_long)   -> {long, p2_note, key_5};
-bms_channel_to_iidx_event(p2_key_6_long)   -> {long, p2_note, key_6};
-bms_channel_to_iidx_event(p2_key_7_long)   -> {long, p2_note, key_7};
-bms_channel_to_iidx_event(E)               -> throw({event_skip, E}).
+bms_channel_to_iidx_event(bgm)               -> bgm_sound;
+bms_channel_to_iidx_event(tempo_change)      -> tempo_change;
+bms_channel_to_iidx_event(length_of_measure) -> meter_info;
+bms_channel_to_iidx_event(p1_scratch)        -> {short, p1_note, scratch};
+bms_channel_to_iidx_event(p1_key_1)          -> {short, p1_note, key_1};
+bms_channel_to_iidx_event(p1_key_2)          -> {short, p1_note, key_2};
+bms_channel_to_iidx_event(p1_key_3)          -> {short, p1_note, key_3};
+bms_channel_to_iidx_event(p1_key_4)          -> {short, p1_note, key_4};
+bms_channel_to_iidx_event(p1_key_5)          -> {short, p1_note, key_5};
+bms_channel_to_iidx_event(p1_key_6)          -> {short, p1_note, key_6};
+bms_channel_to_iidx_event(p1_key_7)          -> {short, p1_note, key_7};
+bms_channel_to_iidx_event(p1_scratch_long)   -> {long, p1_note, scratch};
+bms_channel_to_iidx_event(p1_key_1_long)     -> {long, p1_note, key_1};
+bms_channel_to_iidx_event(p1_key_2_long)     -> {long, p1_note, key_2};
+bms_channel_to_iidx_event(p1_key_3_long)     -> {long, p1_note, key_3};
+bms_channel_to_iidx_event(p1_key_4_long)     -> {long, p1_note, key_4};
+bms_channel_to_iidx_event(p1_key_5_long)     -> {long, p1_note, key_5};
+bms_channel_to_iidx_event(p1_key_6_long)     -> {long, p1_note, key_6};
+bms_channel_to_iidx_event(p1_key_7_long)     -> {long, p1_note, key_7};
+bms_channel_to_iidx_event(p2_scratch)        -> {short, p2_note, scratch};
+bms_channel_to_iidx_event(p2_key_1)          -> {short, p2_note, key_1};
+bms_channel_to_iidx_event(p2_key_2)          -> {short, p2_note, key_2};
+bms_channel_to_iidx_event(p2_key_3)          -> {short, p2_note, key_3};
+bms_channel_to_iidx_event(p2_key_4)          -> {short, p2_note, key_4};
+bms_channel_to_iidx_event(p2_key_5)          -> {short, p2_note, key_5};
+bms_channel_to_iidx_event(p2_key_6)          -> {short, p2_note, key_6};
+bms_channel_to_iidx_event(p2_key_7)          -> {short, p2_note, key_7};
+bms_channel_to_iidx_event(p2_scratch_long)   -> {long, p2_note, scratch};
+bms_channel_to_iidx_event(p2_key_1_long)     -> {long, p2_note, key_1};
+bms_channel_to_iidx_event(p2_key_2_long)     -> {long, p2_note, key_2};
+bms_channel_to_iidx_event(p2_key_3_long)     -> {long, p2_note, key_3};
+bms_channel_to_iidx_event(p2_key_4_long)     -> {long, p2_note, key_4};
+bms_channel_to_iidx_event(p2_key_5_long)     -> {long, p2_note, key_5};
+bms_channel_to_iidx_event(p2_key_6_long)     -> {long, p2_note, key_6};
+bms_channel_to_iidx_event(p2_key_7_long)     -> {long, p2_note, key_7};
+bms_channel_to_iidx_event(E)                 -> throw({event_skip, E}).
 
 
 parse_beats(ChannelNotes, short, _, State) ->
@@ -324,9 +332,9 @@ parse_beats(ChannelNotes, short, _, State) ->
 parse_beats(ChannelNotes, long, Channel, State) ->
     parse_long_beats(ChannelNotes, Channel, State).
 
-parse_single_beats(ChannelNotes, #{bpm := BPM}) ->
+parse_single_beats(ChannelNotes, State) ->
     TrackResolution = length(ChannelNotes),
-    TrackTicks = 240 / BPM * 1000,
+    TrackTicks = track_ticks(State),
     NoteStride = round(TrackTicks / TrackResolution),
     {_, Notes} = lists:foldl(fun
         (<<"00">>, {Offset, Notes}) ->
@@ -341,10 +349,10 @@ parse_single_beats(ChannelNotes, #{bpm := BPM}) ->
     Notes.
 
 parse_long_beats(ChannelNotes, Channel, State) ->
-    #{bpm := BPM, partial_long_notes := PartialLongNotes} = State,
+    #{partial_long_notes := PartialLongNotes} = State,
     TrackResolution = length(ChannelNotes),
    % io:format("TrackResolution: ~p~n", [TrackResolution]),
-    TrackTicks = 240 / BPM * 1000,
+    TrackTicks = track_ticks(State),
     NoteStride = round(TrackTicks / TrackResolution),
     % Tracks each long note in the channel to measure its length.
     % Each note is present 2 times to signal start and end.
@@ -369,7 +377,9 @@ parse_long_beats(ChannelNotes, Channel, State) ->
             {NewOffset, NewKeySound, NoteStride, NotesAcc};
         (KeySound, {Offset, KeySound, NoteLenght, NotesAcc}) ->
             NewOffset = Offset + NoteStride,
-            LongNote = {Offset, KeySound, NoteLenght},
+            NoteFinalLenght = NoteLenght + NoteStride,
+            NoteStartOffset = NewOffset - NoteFinalLenght,
+            LongNote = {NoteStartOffset, KeySound, NoteFinalLenght},
             {NewOffset, undefined, 0, [LongNote | NotesAcc]}
         end,
         StartAcc,
@@ -459,3 +469,22 @@ generate_silent_keysound() ->
     Binary = iidx_cli:read_file(SilentKeysoundFile),
     file:delete(SilentKeysoundFile),
     Binary.
+
+
+find_lowest_denominator(LengthOfMeasure) ->
+    rec_find_lowest_denominator(LengthOfMeasure, 2).
+
+rec_find_lowest_denominator(LengthOfMeasure, Denominator) ->
+    Numerator = LengthOfMeasure * Denominator,
+    case round(Numerator) == Numerator of
+        true -> {round(Numerator), Denominator};
+        false -> rec_find_lowest_denominator(LengthOfMeasure, Denominator + 1)
+    end.
+
+track_ticks(#{bpm := BPM, meter := Meter}) ->
+    % A track is (240 / BPM) seconds long in BMS
+    % A Tick is 1/1000 of a second in IIDX
+    % The 'meter' or 'length of measure' reduces the track if is not whole.
+    % For example
+    % A song in 7/8 is 1/8 shorter then a 4/4 song.
+    round(240 / BPM * 1000 * Meter).
