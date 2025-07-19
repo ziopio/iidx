@@ -78,8 +78,7 @@ decode_line(<<"#TITLE ", Title/binary>>, S) ->
 decode_line(<<"#ARTIST ", Artist/binary>>, S) ->
     mapz:deep_put([header, artist], Artist, S);
 decode_line(<<"#SUBARTIST ", Subject/binary>>, S) ->
-    [Role, SubArtist] = binary:split(Subject, <<":">>),
-    mapz:deep_put([header, subartist, Role], SubArtist, S);
+    mapz:deep_put([header, subartist], Subject, S);
 decode_line(<<"#BPM ", BPM/binary>>, S) ->
     Value = try binary_to_integer(BPM)
         catch
