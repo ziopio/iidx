@@ -65,7 +65,7 @@ merge_song_metadata(BMSCharts) ->
               difficulty := Difficulty,
               gauge_total := GaugeTotal,
               genre :=  Genre,
-              long_note_type := LongNoteType,
+              %long_note_type := LongNoteType,
               player := Player,
               playlevel := PlayLevel,
               rank := Rank
@@ -73,7 +73,7 @@ merge_song_metadata(BMSCharts) ->
             ChartSpecific = #{
                 gauge_total => GaugeTotal,
                 difficulty => Difficulty,
-                long_note_type => LongNoteType,
+                %long_note_type => LongNoteType,
                 player => Player,
                 playlevel => PlayLevel,
                 rank => Rank
