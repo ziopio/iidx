@@ -81,27 +81,11 @@ get_all_images(Chart) ->
 % Read all the assets of the BMS files into a single map
 read_all_bms_assets(BMSfolder, #{audio := WavFiles, bitmaps := BitMaps}) ->
     WavData = #{ID => read_audio(BMSfolder, Filename) || ID := Filename <- WavFiles},
-
-    BitMapData = #{ID => iidx_cli:read_file(filename:join(BMSfolder, Filename))
+    FullBitMapPaths = #{ID => filename:join(BMSfolder, Filename)
                     || ID := Filename <- BitMaps},
-    PreviewBin = read_audio(BMSfolder, <<"preview">>),
-    Preview = #{
-        data => PreviewBin,
-        track => 0,
-        attenuation => 1,
-        loop => 0
-    },
-    #{audio => WavData, bitmaps => BitMapData, preview => Preview}.
+    Preview = read_or_generate_preview(BMSfolder),
+    #{audio => WavData, bitmaps => FullBitMapPaths, preview => Preview}.
 
-read_audio(BMSfolder, <<"preview">> = Filename) ->
-    case iidx_cli:find_files(BMSfolder, <<Filename/binary, ".*">>) of
-        [File] ->
-            convert_audiofile_to_wav(File);
-        _ ->
-            ok
-    end,
-    WavFilename = <<(filename:rootname(Filename))/binary, ".wav">>,
-    iidx_cli:read_file(filename:join(BMSfolder, WavFilename));
 read_audio(BMSfolder, Filename) ->
     case iidx_cli:find_files(BMSfolder, <<Filename/binary, ".*">>) of
         [File] ->
@@ -116,7 +100,8 @@ convert_audiofile_to_wav(FilePath) ->
     WavFilePath = filename:rootname(FilePath) ++ ".wav",
     iidx_cli:info("Converting ~s -> ~s", [FilePath, WavFilePath]),
     FFMPEG = os:find_executable("ffmpeg"),
-    iidx_cli:exec(FFMPEG, ["-y", "-i", FilePath, "-t", "10", WavFilePath]).
+    iidx_cli:exec(FFMPEG, ["-y", "-i", FilePath, "-t", "10", WavFilePath]),
+    iidx_cli:read_file(WavFilePath).
 
 convert_audiofile_to_asf(FilePath) ->
     AsfFilePath = filename:rootname(FilePath) ++ ".asf",
@@ -403,22 +388,43 @@ generate_video(#{bitmaps := BitMapMap}, _) when BitMapMap =:= #{} ->
     #{};
 generate_video(#{bitmaps := BitMapMap}, IIDXid) ->
     [FirstBitMap|_] = maps:values(BitMapMap),
+    MP4Video = case filename:extension(FirstBitMap) of
+        <<".bmp">> -> gen_mp4_from_image(FirstBitMap);
+        <<".png">> -> gen_mp4_from_image(FirstBitMap);
+        <<".mpg">> -> convert_mpg_to_mp4(FirstBitMap);
+        _ -> throw({unhandled_bga_file, FirstBitMap})
+    end,
+    #{<<(integer_to_binary(IIDXid))/binary, ".mp4">> => MP4Video}.
+
+gen_mp4_from_image(BitMapFile) ->
     TempDir = iidx_cli:get_temp_dir(),
-    TempImage = filename:join(TempDir, <<"temp_", (integer_to_binary(IIDXid))/binary, ".bmp">>),
-    TempVideo = filename:join(TempDir, <<"temp_", (integer_to_binary(IIDXid))/binary, ".mp4">>),
-    ok = file:write_file(TempImage, FirstBitMap),
+    TempVideo = filename:join(TempDir, <<"temp_video.mp4">>),
     FFMPEG = os:find_executable("ffmpeg"),
     Args = [
         "-loop", "1",
-        "-i", TempImage,
+        "-i", BitMapFile,
         "-c:v", "libx264", "-t", "1", "-pix_fmt", "yuv420p",
         TempVideo
     ],
     iidx_cli:exec(FFMPEG, Args),
     MP4Video = iidx_cli:read_file(TempVideo),
     file:delete(TempVideo),
-    file:delete(TempImage),
-    #{<<(integer_to_binary(IIDXid))/binary, ".mp4">> => MP4Video}.
+    MP4Video.
+
+convert_mpg_to_mp4(VideoFilename) ->
+    TempDir = iidx_cli:get_temp_dir(),
+    TempVideo = filename:join(TempDir, <<"temp_video.mp4">>),
+    FFMPEG = os:find_executable("ffmpeg"),
+    Args = [
+        "-i", VideoFilename,
+        "-c:v", "libx264",
+        "-c:a", "aac",
+        TempVideo
+    ],
+    iidx_cli:exec(FFMPEG, Args),
+    MP4Video = iidx_cli:read_file(TempVideo),
+    file:delete(TempVideo),
+    MP4Video.
 
 create_sound_index(BMSCharts, #{audio := WavMap} = Assets) ->
     ExpectedKeysounds = parse_all_keysounds(BMSCharts),
@@ -485,3 +491,42 @@ track_ticks(#{bpm := BPM, meter := Meter}) ->
     % For example
     % A song in 7/8 is 1/8 shorter then a 4/4 song.
     round(240 / BPM * 1000 * Meter).
+
+read_or_generate_preview(BMSfolder) ->
+    PreviewFilePath = filename:join(BMSfolder,  <<"preview.wav">>),
+    PreviewBin = case filelib:is_regular(PreviewFilePath) of
+        true ->
+            iidx_cli:read_file(PreviewFilePath);
+        false ->
+            FullWildcard = binary_to_list(filename:join(BMSfolder,
+                                          <<"preview.*">>)),
+            case filelib:wildcard(FullWildcard) of
+                [FilePath] ->
+                    convert_audiofile_to_wav(FilePath);
+                _ ->
+                    iidx_cli:warn("No or multiple previews found,"
+                                  " generating one..."),
+                    generate_preview(PreviewFilePath)
+            end
+    end,
+    #{
+        data => PreviewBin,
+        track => 0,
+        attenuation => 1,
+        loop => 0
+    }.
+
+generate_preview(PreviewFilePath) ->
+    % Generate a silent preview
+    % This is a fallback for when the preview.wav is missing
+    % Generate 1s of silence
+    % TODO: Generate the preview by playing the actual chart
+    FFMPEG = os:find_executable("ffmpeg"),
+    iidx_cli:exec(FFMPEG, [
+        "-f", "lavfi",
+        "-i", "anullsrc=channel_layout=stereo:sample_rate=44100",
+        "-t", "1",
+        "-c:a", "wmav2",
+        PreviewFilePath
+        ]),
+   iidx_cli:read_file(PreviewFilePath).
